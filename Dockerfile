@@ -1,8 +1,8 @@
 # Build stage
 FROM golang:1.24-alpine AS builder
 
-# Install git and ca-certificates
-RUN apk add --no-cache git ca-certificates tzdata
+# Install git, ca-certificates, tzdata, and build tools (including gcc)
+RUN apk add --no-cache git ca-certificates tzdata build-base
 
 # Set working directory
 WORKDIR /app
