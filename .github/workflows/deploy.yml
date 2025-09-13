@@ -44,6 +44,16 @@ jobs:
 
           # Stop existing process if running
           pkill -f financial-tracker || true
+          sleep 2
+
+          # Check if environment variables are set
+          if [ -z "$DISCORD_BOT_TOKEN" ] || [ -z "$DISCORD_CHANNEL_ID" ]; then
+            echo "❌ Environment variables not set. Please set DISCORD_BOT_TOKEN and DISCORD_CHANNEL_ID"
+            echo "Current values:"
+            echo "DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:0:10}..."
+            echo "DISCORD_CHANNEL_ID: $DISCORD_CHANNEL_ID"
+            exit 1
+          fi
 
           # Build the application
           go build -o financial-tracker ./cmd
@@ -52,10 +62,15 @@ jobs:
           nohup ./financial-tracker > app.log 2>&1 &
 
           # Wait a moment and check if it's running
-          sleep 2;
+          sleep 5
           if pgrep -f financial-tracker > /dev/null; then
             echo "✅ Application started successfully"
+            echo "Process ID: $(pgrep -f financial-tracker)"
+            echo "Health check:"
+            curl -s http://localhost:8080/health || echo "Health endpoint not responding"
           else
             echo "❌ Application failed to start"
-            cat app.log
+            echo "Recent logs:"
+            tail -20 app.log
+            exit 1
           fi
