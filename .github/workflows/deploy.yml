@@ -46,9 +46,18 @@ jobs:
           pkill -f financial-tracker || true
           sleep 2
 
+          # Load environment variables from .env file
+          if [ -f ".env" ]; then
+            echo "📄 Loading environment variables from .env file"
+            export $(cat .env | grep -v '^#' | xargs)
+          else
+            echo "❌ .env file not found"
+            exit 1
+          fi
+
           # Check if environment variables are set
           if [ -z "$DISCORD_BOT_TOKEN" ] || [ -z "$DISCORD_CHANNEL_ID" ]; then
-            echo "❌ Environment variables not set. Please set DISCORD_BOT_TOKEN and DISCORD_CHANNEL_ID"
+            echo "❌ Environment variables not set. Please check .env file"
             echo "Current values:"
             echo "DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:0:10}..."
             echo "DISCORD_CHANNEL_ID: $DISCORD_CHANNEL_ID"
