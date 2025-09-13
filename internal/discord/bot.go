@@ -58,6 +58,12 @@ func (b *Bot) handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return //specific to the channel
 	}
 
+	// Check for summary command
+	if strings.HasPrefix(m.Content, "!summary") {
+		b.handleSummaryCommand(s, m)
+		return
+	}
+
 	parts := strings.Split(m.Content, "\n")
 	if len(parts) < 1 {
 		s.ChannelMessageSend(m.ChannelID, "No message content provided")
@@ -116,4 +122,88 @@ func isValidCategory(category string) bool {
 		"investments": true,
 	}
 	return validCategories[strings.ToLower(category)]
+}
+
+func (b *Bot) handleSummaryCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
+	args := strings.Fields(m.Content)
+
+	if len(args) == 1 {
+		// !summary - show all categories
+		b.handleAllCategoriesSummary(s, m)
+	} else if len(args) == 2 {
+		// !summary <category> - show specific category
+		category := strings.ToLower(args[1])
+		if !isValidCategory(category) {
+			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Invalid category: %s. Use: food, travel, savings, church, investments", category))
+			return
+		}
+		b.handleCategorySummary(s, m, category)
+	} else {
+		s.ChannelMessageSend(m.ChannelID, "Usage: !summary [category]\nExamples:\n!summary - show all categories\n!summary food - show food transactions")
+	}
+}
+
+func (b *Bot) handleAllCategoriesSummary(s *discordgo.Session, m *discordgo.MessageCreate) {
+	summary, err := b.db.GetCategorySummary()
+	if err != nil {
+		s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Failed to get summary: %v", err))
+		return
+	}
+
+	if len(summary) == 0 {
+		s.ChannelMessageSend(m.ChannelID, "No transactions found.")
+		return
+	}
+
+	var total float64
+	response := "📊 **Transaction Summary**\n\n"
+
+	categories := []string{"food", "travel", "savings", "church", "investments"}
+	for _, category := range categories {
+		if amount, exists := summary[category]; exists {
+			response += fmt.Sprintf("**%s**: Ksh%.2f\n", strings.Title(category), amount)
+			total += amount
+		}
+	}
+
+	response += fmt.Sprintf("\n**Total**: Ksh%.2f", total)
+	s.ChannelMessageSend(m.ChannelID, response)
+}
+
+func (b *Bot) handleCategorySummary(s *discordgo.Session, m *discordgo.MessageCreate, category string) {
+	transactions, err := b.db.GetTransactionsByCategory(category)
+	if err != nil {
+		s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Failed to get transactions: %v", err))
+		return
+	}
+
+	if len(transactions) == 0 {
+		s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("No transactions found for category: %s", category))
+		return
+	}
+
+	var total float64
+	response := fmt.Sprintf("📊 **%s Transactions**\n\n", strings.Title(category))
+
+	// Show last 10 transactions
+	limit := 10
+	if len(transactions) < limit {
+		limit = len(transactions)
+	}
+
+	for i := 0; i < limit; i++ {
+		tx := transactions[i]
+		total += tx.Amount
+		response += fmt.Sprintf("• **Ksh%.2f** to %s\n  %s - %s\n\n",
+			tx.Amount, tx.Recipient,
+			tx.DateTime.Format("Jan 2, 2006 3:04 PM"),
+			tx.Reason)
+	}
+
+	if len(transactions) > limit {
+		response += fmt.Sprintf("... and %d more transactions\n\n", len(transactions)-limit)
+	}
+
+	response += fmt.Sprintf("**Total %s**: Ksh%.2f (%d transactions)", strings.Title(category), total, len(transactions))
+	s.ChannelMessageSend(m.ChannelID, response)
 }
