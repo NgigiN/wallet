@@ -41,7 +41,21 @@ jobs:
         script: |
           cd /home/deploy/opt/wallet
           git pull origin main
-          docker compose down
-          docker compose build --no-cache
-          docker compose up -d
-          docker system prune -f
+
+          # Stop existing process if running
+          pkill -f financial-tracker || true
+
+          # Build the application
+          go build -o financial-tracker ./cmd
+
+          # Start the application in background
+          nohup ./financial-tracker > app.log 2>&1 &
+
+          # Wait a moment and check if it's running
+          sleep 2;
+          if pgrep -f financial-tracker > /dev/null; then
+            echo "✅ Application started successfully"
+          else
+            echo "❌ Application failed to start"
+            cat app.log
+          fi
