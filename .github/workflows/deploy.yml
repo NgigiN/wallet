@@ -27,6 +27,9 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    concurrency:
+      group: deploy-${{ github.ref }}
+      cancel-in-progress: false
 
     steps:
     - uses: actions/checkout@v4
@@ -42,9 +45,31 @@ jobs:
           cd /home/deploy/opt/wallet
           git pull origin main
 
+          # Create deployment lock to prevent concurrent deployments
+          LOCK_FILE="/tmp/financial-tracker-deploy.lock"
+          if [ -f "$LOCK_FILE" ]; then
+            echo "⏳ Another deployment is in progress, waiting..."
+            while [ -f "$LOCK_FILE" ]; do
+              sleep 5
+            done
+          fi
+          echo $$ > "$LOCK_FILE"
+          trap 'rm -f "$LOCK_FILE"' EXIT
+
           # Stop existing process if running
-          pkill -f financial-tracker || true
-          sleep 2
+          if pgrep -f financial-tracker > /dev/null; then
+            echo "🛑 Stopping existing financial-tracker process"
+            pkill -f financial-tracker
+            sleep 3
+            # Force kill if still running
+            if pgrep -f financial-tracker > /dev/null; then
+              echo "🔨 Force killing financial-tracker process"
+              pkill -9 -f financial-tracker
+              sleep 2
+            fi
+          else
+            echo "ℹ️  No existing financial-tracker process found"
+          fi
 
           # Load environment variables from .env file
           if [ -f ".env" ]; then
