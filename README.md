@@ -264,4 +264,4 @@ For issues and questions:
 - Check the troubleshooting section
 - Review Discord bot permissions and channel access
 
-debug line
+debug line _
