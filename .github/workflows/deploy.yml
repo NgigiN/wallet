@@ -34,7 +34,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Stop and Pull
+    - name: Deploy and Start
       uses: appleboy/ssh-action@v1.0.3
       with:
         host: ${{ secrets.SERVER_HOST }}
@@ -45,59 +45,11 @@ jobs:
           cd /home/deploy/opt/wallet
           git pull origin main
 
-          # Stop existing process if running
-          if pgrep -f financial-tracker > /dev/null; then
-            echo "🛑 Stopping existing financial-tracker process"
-            pkill -f financial-tracker
-            sleep 3
-            # Force kill if still running
-            if pgrep -f financial-tracker > /dev/null; then
-              echo "🔨 Force killing financial-tracker process"
-              pkill -9 -f financial-tracker
-              sleep 2
-            fi
-          else
-            echo "ℹ️  No existing financial-tracker process found"
-          fi
+          # Make sure the script is executable
+          chmod +x start_app.sh
 
-    - name: Build and Start
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.SERVER_HOST }}
-        username: ${{ secrets.SERVER_USER }}
-        key: ${{ secrets.SERVER_SSH_KEY }}
-        port: ${{ secrets.SERVER_PORT }}
-        script: |
-          cd /home/deploy/opt/wallet
-
-          # Load environment variables from .env file
-          if [ -f ".env" ]; then
-            echo "📄 Loading environment variables from .env file"
-            export $(cat .env | grep -v '^#' | xargs)
-          else
-            echo "❌ .env file not found"
-            exit 1
-          fi
-
-          # Check if environment variables are set
-          if [ -z "$DISCORD_BOT_TOKEN" ] || [ -z "$DISCORD_CHANNEL_ID" ]; then
-            echo "❌ Environment variables not set. Please check .env file"
-            echo "Current values:"
-            echo "DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:0:10}..."
-            echo "DISCORD_CHANNEL_ID: $DISCORD_CHANNEL_ID"
-            exit 1
-          fi
-
-          # Build the application
-          go build -o financial-tracker ./cmd
-
-          # Start the application in a new session to prevent it from being killed
-          echo "🚀 Starting financial-tracker in detached session..."
-          setsid ./financial-tracker > app.log 2>&1 < /dev/null &
-
-          # Get the process ID immediately
-          APP_PID=$!
-          echo "📋 Process started with PID: $APP_PID"
+          # Run the deployment script
+          ./start_app.sh
 
     - name: Health Check
       # Wait a moment for the server to start
