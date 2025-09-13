@@ -263,3 +263,5 @@ For issues and questions:
 - Create an issue on GitHub
 - Check the troubleshooting section
 - Review Discord bot permissions and channel access
+
+debug line
