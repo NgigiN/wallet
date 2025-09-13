@@ -265,3 +265,5 @@ docker-compose.override.yml
 
 # Local development tools
 .local/
+
+DEPLOYMENT.md

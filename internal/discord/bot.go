@@ -2,7 +2,9 @@ package discord
 
 import (
 	"fmt"
+	"net/http"
 	"strings"
+	"time"
 
 	"github.com/NgigiN/wallet/internal/config"
 	"github.com/NgigiN/wallet/internal/mpesa"
@@ -14,6 +16,7 @@ type Bot struct {
 	session   *discordgo.Session
 	db        *storage.Database
 	channelID string
+	startTime time.Time
 }
 
 func NewBot(cfg *config.Config) (*Bot, error) {
@@ -30,6 +33,7 @@ func NewBot(cfg *config.Config) (*Bot, error) {
 		session:   session,
 		db:        db,
 		channelID: cfg.DiscordChannelId,
+		startTime: time.Now(),
 	}
 
 	session.AddHandler(bot.handleMessage)
@@ -39,6 +43,9 @@ func NewBot(cfg *config.Config) (*Bot, error) {
 }
 
 func (b *Bot) Start() error {
+	// Start health check server
+	go b.startHealthServer()
+
 	if err := b.session.Open(); err != nil {
 		return fmt.Errorf("failed to open Discord connection: %w", err)
 	}
@@ -206,4 +213,29 @@ func (b *Bot) handleCategorySummary(s *discordgo.Session, m *discordgo.MessageCr
 
 	response += fmt.Sprintf("**Total %s**: Ksh%.2f (%d transactions)", strings.Title(category), total, len(transactions))
 	s.ChannelMessageSend(m.ChannelID, response)
+}
+
+func (b *Bot) startHealthServer() {
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		uptime := time.Since(b.startTime)
+		status := "healthy"
+
+		// Check if Discord connection is alive
+		if b.session == nil || b.session.State == nil {
+			status = "unhealthy"
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
+
+		response := fmt.Sprintf(`{
+			"status": "%s",
+			"uptime": "%s",
+			"discord_connected": %t,
+			"timestamp": "%s"
+		}`, status, uptime.String(), b.session != nil && b.session.State != nil, time.Now().Format(time.RFC3339))
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(response))
+	})
+
+	http.ListenAndServe(":8080", nil)
 }
