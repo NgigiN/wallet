@@ -34,7 +34,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Deploy to server
+    - name: Stop and Pull
       uses: appleboy/ssh-action@v1.0.3
       with:
         host: ${{ secrets.SERVER_HOST }}
@@ -44,17 +44,6 @@ jobs:
         script: |
           cd /home/deploy/opt/wallet
           git pull origin main
-
-          # Create deployment lock to prevent concurrent deployments
-          LOCK_FILE="/tmp/financial-tracker-deploy.lock"
-          if [ -f "$LOCK_FILE" ]; then
-            echo "⏳ Another deployment is in progress, waiting..."
-            while [ -f "$LOCK_FILE" ]; do
-              sleep 5
-            done
-          fi
-          echo $$ > "$LOCK_FILE"
-          trap 'rm -f "$LOCK_FILE"' EXIT
 
           # Stop existing process if running
           if pgrep -f financial-tracker > /dev/null; then
@@ -70,6 +59,16 @@ jobs:
           else
             echo "ℹ️  No existing financial-tracker process found"
           fi
+
+    - name: Build and Start
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        port: ${{ secrets.SERVER_PORT }}
+        script: |
+          cd /home/deploy/opt/wallet
 
           # Load environment variables from .env file
           if [ -f ".env" ]; then
@@ -100,15 +99,28 @@ jobs:
           APP_PID=$!
           echo "📋 Process started with PID: $APP_PID"
 
-          # Wait a moment and check if it's running
-          sleep 5
+    - name: Health Check
+      # Wait a moment for the server to start
+      run: sleep 10
+
+    - name: Verify Application is Running
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        port: ${{ secrets.SERVER_PORT }}
+        script: |
+          cd /home/deploy/opt/wallet
+
+          # Check if process exists and is healthy
           if pgrep -f financial-tracker > /dev/null; then
             echo "✅ Application started successfully"
             echo "Process ID: $(pgrep -f financial-tracker)"
-            echo "Health check:"
-            curl -s http://localhost:8080/health || echo "Health endpoint not responding"
             echo "📊 Process status:"
             ps aux | grep financial-tracker | grep -v grep
+            echo "Health check:"
+            curl -s http://localhost:8080/health || echo "Health endpoint not responding"
           else
             echo "❌ Application failed to start"
             echo "Recent logs:"
