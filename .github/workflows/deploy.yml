@@ -92,8 +92,13 @@ jobs:
           # Build the application
           go build -o financial-tracker ./cmd
 
-          # Start the application in background
-          nohup ./financial-tracker > app.log 2>&1 &
+          # Start the application in a new session to prevent it from being killed
+          echo "🚀 Starting financial-tracker in detached session..."
+          setsid ./financial-tracker > app.log 2>&1 < /dev/null &
+
+          # Get the process ID immediately
+          APP_PID=$!
+          echo "📋 Process started with PID: $APP_PID"
 
           # Wait a moment and check if it's running
           sleep 5
@@ -102,9 +107,13 @@ jobs:
             echo "Process ID: $(pgrep -f financial-tracker)"
             echo "Health check:"
             curl -s http://localhost:8080/health || echo "Health endpoint not responding"
+            echo "📊 Process status:"
+            ps aux | grep financial-tracker | grep -v grep
           else
             echo "❌ Application failed to start"
             echo "Recent logs:"
             tail -20 app.log
+            echo "🔍 Checking if process exists:"
+            ps aux | grep financial-tracker
             exit 1
           fi
