@@ -71,6 +71,12 @@ func (b *Bot) handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
+	// Check for batch processing (multiple transactions)
+	if b.isBatchMessage(m.Content) {
+		b.handleBatchMessage(s, m)
+		return
+	}
+
 	parts := strings.Split(m.Content, "\n")
 	if len(parts) < 1 {
 		s.ChannelMessageSend(m.ChannelID, "No message content provided")
@@ -217,6 +223,137 @@ func (b *Bot) handleCategorySummary(s *discordgo.Session, m *discordgo.MessageCr
 
 	response += fmt.Sprintf("**Total %s**: Ksh%.2f (%d transactions)", strings.Title(category), total, len(transactions))
 	s.ChannelMessageSend(m.ChannelID, response)
+}
+
+func (b *Bot) isBatchMessage(content string) bool {
+	// Check if message contains multiple M-PESA transactions
+	lines := strings.Split(content, "\n")
+	mpesaCount := 0
+	for _, line := range lines {
+		if strings.Contains(line, "Confirmed.") && strings.Contains(line, "sent to") ||
+			strings.Contains(line, "Confirmed.") && strings.Contains(line, "paid to") ||
+			strings.Contains(line, "Confirmed.") && strings.Contains(line, "received") {
+			mpesaCount++
+		}
+	}
+	return mpesaCount > 1
+}
+
+func (b *Bot) handleBatchMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
+	lines := strings.Split(m.Content, "\n")
+
+	// Split into individual transactions
+	transactions := b.splitIntoTransactions(lines)
+
+	if len(transactions) == 0 {
+		s.ChannelMessageSend(m.ChannelID, "No valid M-PESA transactions found in batch message")
+		return
+	}
+
+	successCount := 0
+	errorCount := 0
+	var errors []string
+
+	for i, txData := range transactions {
+		// Parse the M-PESA message
+		parsed, err := mpesa.ParseMPesaMessage(txData.Message)
+		if err != nil {
+			errorCount++
+			errors = append(errors, fmt.Sprintf("Transaction %d: %v", i+1, err))
+			continue
+		}
+
+		// Parse metadata
+		category, reason := parseMetadata(txData.Metadata)
+		if !isValidCategory(category) {
+			errorCount++
+			errors = append(errors, fmt.Sprintf("Transaction %d: Invalid category '%s'", i+1, category))
+			continue
+		}
+
+		// Create transaction record
+		tx := storage.Transaction{
+			TransactionID: parsed.TransactionID,
+			Amount:        parsed.Amount,
+			Recipient:     parsed.Recipient,
+			DateTime:      parsed.DateTime,
+			Balance:       parsed.Balance,
+			Cost:          parsed.Cost,
+			Category:      category,
+			Reason:        reason,
+		}
+
+		// Save to database
+		if err := b.db.SaveTransaction(&tx); err != nil {
+			errorCount++
+			errors = append(errors, fmt.Sprintf("Transaction %d: %v", i+1, err))
+			continue
+		}
+
+		successCount++
+	}
+
+	// Send summary response
+	response := fmt.Sprintf("📊 **Batch Processing Complete**\n")
+	response += fmt.Sprintf("✅ **Successfully processed**: %d transactions\n", successCount)
+
+	if errorCount > 0 {
+		response += fmt.Sprintf("❌ **Failed**: %d transactions\n", errorCount)
+		response += fmt.Sprintf("**Errors:**\n")
+		for _, err := range errors {
+			response += fmt.Sprintf("• %s\n", err)
+		}
+	}
+
+	s.ChannelMessageSend(m.ChannelID, response)
+}
+
+type TransactionData struct {
+	Message  string
+	Metadata []string
+}
+
+func (b *Bot) splitIntoTransactions(lines []string) []TransactionData {
+	var transactions []TransactionData
+	var currentTx TransactionData
+	var inTransaction bool
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// Check if this is a new M-PESA transaction
+		if strings.Contains(line, "Confirmed.") && (strings.Contains(line, "sent to") ||
+			strings.Contains(line, "paid to") || strings.Contains(line, "received")) {
+
+			// Save previous transaction if exists
+			if inTransaction {
+				transactions = append(transactions, currentTx)
+			}
+
+			// Start new transaction
+			currentTx = TransactionData{
+				Message:  line,
+				Metadata: []string{},
+			}
+			inTransaction = true
+		} else if inTransaction {
+			// This is metadata for current transaction
+			if strings.HasPrefix(line, "c:") || strings.HasPrefix(line, "Category:") ||
+				strings.HasPrefix(line, "r:") || strings.HasPrefix(line, "Reason:") {
+				currentTx.Metadata = append(currentTx.Metadata, line)
+			}
+		}
+	}
+
+	// Add the last transaction
+	if inTransaction {
+		transactions = append(transactions, currentTx)
+	}
+
+	return transactions
 }
 
 func (b *Bot) startHealthServer() {
