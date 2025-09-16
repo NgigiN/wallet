@@ -113,8 +113,12 @@ func parseMetadata(lines []string) (category, reason string) {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "Category: ") {
 			category = strings.TrimSpace(strings.TrimPrefix(line, "Category: "))
+		} else if strings.HasPrefix(line, "c: ") {
+			category = strings.TrimSpace(strings.TrimPrefix(line, "c: "))
 		} else if strings.HasPrefix(line, "Reason: ") {
 			reason = strings.TrimSpace(strings.TrimPrefix(line, "Reason: "))
+		} else if strings.HasPrefix(line, "r: ") {
+			reason = strings.TrimSpace(strings.TrimPrefix(line, "r: "))
 		}
 	}
 	return category, reason

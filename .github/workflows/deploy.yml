@@ -45,14 +45,11 @@ jobs:
           cd /home/deploy/opt/wallet
           git pull origin main
 
-          # Make sure the script is executable
           chmod +x start_app.sh
 
-          # Run the deployment script
           ./start_app.sh
 
     - name: Health Check
-      # Wait a moment for the server to start
       run: sleep 10
 
     - name: Verify Application is Running
@@ -65,19 +62,18 @@ jobs:
         script: |
           cd /home/deploy/opt/wallet
 
-          # Check if process exists and is healthy
           if pgrep -f financial-tracker > /dev/null; then
-            echo "✅ Application started successfully"
+            echo "Application started successfully"
             echo "Process ID: $(pgrep -f financial-tracker)"
-            echo "📊 Process status:"
+            echo "Process status:"
             ps aux | grep financial-tracker | grep -v grep
             echo "Health check:"
             curl -s http://localhost:8080/health || echo "Health endpoint not responding"
           else
-            echo "❌ Application failed to start"
+            echo "Application failed to start"
             echo "Recent logs:"
             tail -20 app.log
-            echo "🔍 Checking if process exists:"
+            echo "Checking if process exists:"
             ps aux | grep financial-tracker
             exit 1
           fi
