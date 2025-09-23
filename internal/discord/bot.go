@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/NgigiN/wallet/internal/config"
 	"github.com/NgigiN/wallet/internal/mpesa"
@@ -57,6 +58,24 @@ func (b *Bot) Stop() {
 	b.session.Close()
 }
 
+// cleanContent removes invisible Unicode characters (e.g., zero-width spaces) that can break regex parsing,
+// while preserving standard whitespace like spaces, newlines, tabs, and carriage returns.
+func cleanContent(input string) string {
+	var sb strings.Builder
+	for _, r := range input {
+		if unicode.IsSpace(r) {
+			// Keep only standard whitespace; skip zero-width and other exotic spaces
+			if r == ' ' || r == '\n' || r == '\t' || r == '\r' {
+				sb.WriteRune(r)
+			}
+		} else if !unicode.IsControl(r) {
+			// Write non-space, non-control characters
+			sb.WriteRune(r)
+		}
+	}
+	return sb.String()
+}
+
 func (b *Bot) handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.Author.ID == s.State.User.ID {
 		return //bot's messages
@@ -66,19 +85,22 @@ func (b *Bot) handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return //specific to the channel
 	}
 
+	// Clean the content to remove any invisible Unicode characters
+	content := cleanContent(m.Content)
+
 	// Check for summary command
-	if strings.HasPrefix(m.Content, "!summary") {
+	if strings.HasPrefix(content, "!summary") {
 		b.handleSummaryCommand(s, m)
 		return
 	}
 
 	// Check for batch processing (multiple transactions)
-	if b.isBatchMessage(m.Content) {
-		b.handleBatchMessage(s, m)
+	if b.isBatchMessage(content) {
+		b.handleBatchMessage(s, m, content)
 		return
 	}
 
-	parts := strings.Split(m.Content, "\n")
+	parts := strings.Split(content, "\n")
 	if len(parts) < 1 {
 		s.ChannelMessageSend(m.ChannelID, "No message content provided")
 		return
@@ -253,9 +275,9 @@ func (b *Bot) isBatchMessage(content string) bool {
 	return len(matches) > 1
 }
 
-func (b *Bot) handleBatchMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
+func (b *Bot) handleBatchMessage(s *discordgo.Session, m *discordgo.MessageCreate, content string) {
 	// Split into individual transactions scanning entire content, not just lines
-	transactions := b.splitIntoTransactions(m.Content)
+	transactions := b.splitIntoTransactions(content)
 
 	if len(transactions) == 0 {
 		s.ChannelMessageSend(m.ChannelID, "No valid M-PESA transactions found in batch message")
