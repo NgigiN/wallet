@@ -264,8 +264,10 @@ func (b *Bot) handleBatchMessage(s *discordgo.Session, m *discordgo.MessageCreat
 
 	successCount := 0
 	errorCount := 0
+	duplicateCount := 0
 	var errors []string
 	var successes []string
+	var duplicates []string
 
 	for i, txData := range transactions {
 		// Parse the M-PESA message
@@ -296,10 +298,25 @@ func (b *Bot) handleBatchMessage(s *discordgo.Session, m *discordgo.MessageCreat
 			Reason:        reason,
 		}
 
-		// Save to database
-		if err := b.db.SaveTransaction(&tx); err != nil {
+		// Save to database with simple retry and duplicate detection
+		var saveErr error
+		for attempt := 1; attempt <= 3; attempt++ {
+			saveErr = b.db.SaveTransaction(&tx)
+			if saveErr == nil {
+				break
+			}
+			// Backoff a bit
+			time.Sleep(100 * time.Millisecond)
+		}
+		if saveErr != nil {
+			// If duplicate, count separately and don't treat as hard failure
+			if strings.Contains(strings.ToLower(saveErr.Error()), "unique constraint failed") {
+				duplicateCount++
+				duplicates = append(duplicates, fmt.Sprintf("%d [%s] (duplicate)", i+1, parsed.TransactionID))
+				continue
+			}
 			errorCount++
-			errors = append(errors, fmt.Sprintf("%d [%s]: %v", i+1, parsed.TransactionID, err))
+			errors = append(errors, fmt.Sprintf("%d [%s]: %v", i+1, parsed.TransactionID, saveErr))
 			continue
 		}
 
@@ -309,12 +326,22 @@ func (b *Bot) handleBatchMessage(s *discordgo.Session, m *discordgo.MessageCreat
 
 	// Send summary response
 	response := fmt.Sprintf("📊 **Batch Processing Complete**\n")
-	response += fmt.Sprintf("✅ **Successfully processed**: %d/%d transactions\n", successCount, len(transactions))
+	response += fmt.Sprintf("✅ **Inserted**: %d/%d\n", successCount, len(transactions))
+	if duplicateCount > 0 {
+		response += fmt.Sprintf("➖ **Duplicates (skipped)**: %d\n", duplicateCount)
+	}
 
 	if len(successes) > 0 {
 		response += "\n**Succeeded:**\n"
 		for _, ok := range successes {
 			response += fmt.Sprintf("• %s\n", ok)
+		}
+	}
+
+	if len(duplicates) > 0 {
+		response += "\n**Duplicates:**\n"
+		for _, d := range duplicates {
+			response += fmt.Sprintf("• %s\n", d)
 		}
 	}
 
