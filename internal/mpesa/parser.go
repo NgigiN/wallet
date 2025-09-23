@@ -24,7 +24,11 @@ func ParseMPesaMessage(msg string) (*ParsedTransaction, error) {
 	// - "New M-PESA balance is" or "New business balance is"
 	// - Optional space before AM/PM
 	// - Allow extra trailing text after transaction cost
-	pattern := `(?i)(\w+)\s+Confirmed\.?\s+(Ksh[\d.,]+)\s+(sent|paid)\s+to\s+(.*?)\s*\.?\s+on\s+(\d{1,2}/\d{1,2}/\d{2})\s+at\s+(\d{1,2}:\d{2}\s?(AM|PM))\.?\s+New\s+(?:M-PESA|business)\s+balance\s+is\s+(Ksh[\d.,]+)\.\s*Transaction\s+cost,?\s*(Ksh[\d.,]+)`
+	// Allow no space before "New ..." (e.g., "PM.New") by making the space optional (\s*)
+	// Constrain money captures to avoid swallowing trailing punctuation on cost
+	// Ksh<number>[,number]* with optional fractional part
+	money := `Ksh[\d,]+(?:\.\d+)?`
+	pattern := `(?i)(\w+)\s+Confirmed\.?\s+(` + money + `)\s+(sent|paid)\s+to\s+(.*?)\s*\.?\s+on\s+(\d{1,2}/\d{1,2}/\d{2})\s+at\s+(\d{1,2}:\d{2}\s?(AM|PM))\.?\s*New\s+(?:M-PESA|business)\s+balance\s+is\s+(` + money + `)\.\s*Transaction\s+cost,?\s*(` + money + `)(?:\.|\b)`
 	re := regexp.MustCompile(pattern)
 	matches := re.FindStringSubmatch(msg)
 	if len(matches) < 10 {

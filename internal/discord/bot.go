@@ -3,6 +3,7 @@ package discord
 import (
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -340,6 +341,21 @@ func (b *Bot) handleBatchMessage(s *discordgo.Session, m *discordgo.MessageCreat
 type TransactionData struct {
 	Message  string
 	Metadata []string
+}
+
+func extractTxnID(line string) string {
+	l := strings.TrimSpace(line)
+	re := regexp.MustCompile(`(?i)^(\w+)\s+Confirmed`)
+	m := re.FindStringSubmatch(l)
+	if len(m) > 1 {
+		return m[1]
+	}
+	// Fallback: first token
+	fields := strings.Fields(l)
+	if len(fields) > 0 {
+		return fields[0]
+	}
+	return "?"
 }
 
 func (b *Bot) splitIntoTransactions(lines []string) []TransactionData {
