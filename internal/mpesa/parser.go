@@ -18,7 +18,13 @@ type ParsedTransaction struct {
 }
 
 func ParseMPesaMessage(msg string) (*ParsedTransaction, error) {
-	pattern := `(\w+) Confirmed\. (Ksh[\d.,]+) (sent|paid) to (.*?) on (\d{1,2}/\d{1,2}/\d{2}) at (\d{1,2}:\d{2} (AM|PM))\.? ?New M-PESA balance is (Ksh[\d.,]+)\. Transaction cost, (Ksh[\d.,]+)\.`
+	// More permissive pattern to support variants observed in messages:
+	// - Optional extra spaces/periods
+	// - Optional "for account ..." inside recipient text
+	// - "New M-PESA balance is" or "New business balance is"
+	// - Optional space before AM/PM
+	// - Allow extra trailing text after transaction cost
+	pattern := `(?i)(\w+)\s+Confirmed\.?\s+(Ksh[\d.,]+)\s+(sent|paid)\s+to\s+(.*?)\s*\.?\s+on\s+(\d{1,2}/\d{1,2}/\d{2})\s+at\s+(\d{1,2}:\d{2}\s?(AM|PM))\.?\s+New\s+(?:M-PESA|business)\s+balance\s+is\s+(Ksh[\d.,]+)\.\s*Transaction\s+cost,?\s*(Ksh[\d.,]+)`
 	re := regexp.MustCompile(pattern)
 	matches := re.FindStringSubmatch(msg)
 	if len(matches) < 10 {
@@ -31,13 +37,26 @@ func ParseMPesaMessage(msg string) (*ParsedTransaction, error) {
 		return nil, fmt.Errorf("failed to parse amount: %w", err)
 	}
 
-	recipient := strings.TrimSuffix(strings.TrimSpace(matches[4]), ".")
+	recipient := strings.TrimSpace(strings.TrimSuffix(matches[4], "."))
+	// Normalize double spaces
+	recipient = strings.Join(strings.Fields(recipient), " ")
 
 	dateParts := strings.Split(matches[5], "/")
 	day, _ := strconv.Atoi(dateParts[0])
 	month, _ := strconv.Atoi(dateParts[1])
 	year := 2000 + func() int { y, _ := strconv.Atoi(dateParts[2]); return y }()
-	dateTimeStr := fmt.Sprintf("%d-%02d-%02d %s", year, month, day, matches[6])
+	// Ensure time has a space before AM/PM
+	timePart := strings.ToUpper(strings.TrimSpace(matches[6]))
+	timePart = strings.ReplaceAll(timePart, "AM", " AM")
+	timePart = strings.ReplaceAll(timePart, "PM", " PM")
+	timePart = strings.ReplaceAll(timePart, "  ", " ")
+	// Fix cases where replace might create leading space (e.g., already had space)
+	timePart = strings.TrimSpace(timePart)
+	if !strings.HasSuffix(timePart, "AM") && !strings.HasSuffix(timePart, "PM") {
+		// Fallback to original if we somehow broke it
+		timePart = matches[6]
+	}
+	dateTimeStr := fmt.Sprintf("%d-%02d-%02d %s", year, month, day, timePart)
 	dateTime, err := time.Parse("2006-01-02 3:04 PM", dateTimeStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse date/time: %w", err)

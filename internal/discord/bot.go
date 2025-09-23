@@ -106,7 +106,7 @@ func (b *Bot) handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	if err := b.db.SaveTransaction(&tx); err != nil {
-		s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Failed to save transaction: %v", err))
+		s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Failed to save transaction %s: %v", parsed.TransactionID, err))
 		return
 	}
 
@@ -250,9 +250,9 @@ func (b *Bot) isBatchMessage(content string) bool {
 	lines := strings.Split(content, "\n")
 	mpesaCount := 0
 	for _, line := range lines {
-		if strings.Contains(line, "Confirmed.") && strings.Contains(line, "sent to") ||
-			strings.Contains(line, "Confirmed.") && strings.Contains(line, "paid to") ||
-			strings.Contains(line, "Confirmed.") && strings.Contains(line, "received") {
+		l := strings.ToLower(line)
+		if strings.Contains(l, "confirmed.") && (strings.Contains(l, "sent to") ||
+			strings.Contains(l, "paid to") || strings.Contains(l, "received")) {
 			mpesaCount++
 		}
 	}
@@ -273,13 +273,14 @@ func (b *Bot) handleBatchMessage(s *discordgo.Session, m *discordgo.MessageCreat
 	successCount := 0
 	errorCount := 0
 	var errors []string
+	var successes []string
 
 	for i, txData := range transactions {
 		// Parse the M-PESA message
 		parsed, err := mpesa.ParseMPesaMessage(txData.Message)
 		if err != nil {
 			errorCount++
-			errors = append(errors, fmt.Sprintf("Transaction %d: %v", i+1, err))
+			errors = append(errors, fmt.Sprintf("%d [%s]: %v", i+1, extractTxnID(txData.Message), err))
 			continue
 		}
 
@@ -287,7 +288,7 @@ func (b *Bot) handleBatchMessage(s *discordgo.Session, m *discordgo.MessageCreat
 		category, reason := parseMetadata(txData.Metadata)
 		if !isValidCategory(category) {
 			errorCount++
-			errors = append(errors, fmt.Sprintf("Transaction %d: Invalid category '%s'", i+1, category))
+			errors = append(errors, fmt.Sprintf("%d [%s]: Invalid category '%s'", i+1, parsed.TransactionID, category))
 			continue
 		}
 
@@ -306,16 +307,24 @@ func (b *Bot) handleBatchMessage(s *discordgo.Session, m *discordgo.MessageCreat
 		// Save to database
 		if err := b.db.SaveTransaction(&tx); err != nil {
 			errorCount++
-			errors = append(errors, fmt.Sprintf("Transaction %d: %v", i+1, err))
+			errors = append(errors, fmt.Sprintf("%d [%s]: %v", i+1, parsed.TransactionID, err))
 			continue
 		}
 
 		successCount++
+		successes = append(successes, fmt.Sprintf("%d [%s]", i+1, parsed.TransactionID))
 	}
 
 	// Send summary response
 	response := fmt.Sprintf("📊 **Batch Processing Complete**\n")
-	response += fmt.Sprintf("✅ **Successfully processed**: %d transactions\n", successCount)
+	response += fmt.Sprintf("✅ **Successfully processed**: %d/%d transactions\n", successCount, len(transactions))
+
+	if len(successes) > 0 {
+		response += "\n**Succeeded:**\n"
+		for _, ok := range successes {
+			response += fmt.Sprintf("• %s\n", ok)
+		}
+	}
 
 	if errorCount > 0 {
 		response += fmt.Sprintf("❌ **Failed**: %d transactions\n", errorCount)
@@ -361,8 +370,9 @@ func (b *Bot) splitIntoTransactions(lines []string) []TransactionData {
 			inTransaction = true
 		} else if inTransaction {
 			// This is metadata for current transaction
-			if strings.HasPrefix(line, "c:") || strings.HasPrefix(line, "Category:") ||
-				strings.HasPrefix(line, "r:") || strings.HasPrefix(line, "Reason:") {
+			l := strings.ToLower(line)
+			if strings.HasPrefix(l, "c:") || strings.HasPrefix(l, "category:") ||
+				strings.HasPrefix(l, "r:") || strings.HasPrefix(l, "reason:") {
 				currentTx.Metadata = append(currentTx.Metadata, line)
 			}
 		}
