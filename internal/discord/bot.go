@@ -247,24 +247,15 @@ func (b *Bot) handleCategorySummary(s *discordgo.Session, m *discordgo.MessageCr
 }
 
 func (b *Bot) isBatchMessage(content string) bool {
-	// Check if message contains multiple M-PESA transactions
-	lines := strings.Split(content, "\n")
-	mpesaCount := 0
-	for _, line := range lines {
-		l := strings.ToLower(line)
-		if strings.Contains(l, "confirmed.") && (strings.Contains(l, "sent to") ||
-			strings.Contains(l, "paid to") || strings.Contains(l, "received")) {
-			mpesaCount++
-		}
-	}
-	return mpesaCount > 1
+	// Count occurrences of pattern "<ID> Confirmed" anywhere in the content
+	re := regexp.MustCompile(`(?i)\b\w+\s+Confirmed\b`)
+	matches := re.FindAllStringIndex(content, -1)
+	return len(matches) > 1
 }
 
 func (b *Bot) handleBatchMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
-	lines := strings.Split(m.Content, "\n")
-
-	// Split into individual transactions
-	transactions := b.splitIntoTransactions(lines)
+	// Split into individual transactions scanning entire content, not just lines
+	transactions := b.splitIntoTransactions(m.Content)
 
 	if len(transactions) == 0 {
 		s.ChannelMessageSend(m.ChannelID, "No valid M-PESA transactions found in batch message")
@@ -358,47 +349,42 @@ func extractTxnID(line string) string {
 	return "?"
 }
 
-func (b *Bot) splitIntoTransactions(lines []string) []TransactionData {
+func (b *Bot) splitIntoTransactions(content string) []TransactionData {
 	var transactions []TransactionData
-	var currentTx TransactionData
-	var inTransaction bool
+	// Find all boundaries where a new transaction starts
+	re := regexp.MustCompile(`(?i)\b\w+\s+Confirmed\b`)
+	indices := re.FindAllStringIndex(content, -1)
+	if len(indices) == 0 {
+		return transactions
+	}
+	// Build slices between boundaries
+	starts := make([]int, 0, len(indices))
+	for _, pair := range indices {
+		starts = append(starts, pair[0])
+	}
+	starts = append(starts, len(content))
 
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
+	for i := 0; i < len(starts)-1; i++ {
+		segment := strings.TrimSpace(content[starts[i]:starts[i+1]])
+		if segment == "" {
 			continue
 		}
-
-		// Check if this is a new M-PESA transaction
-		if strings.Contains(line, "Confirmed.") && (strings.Contains(line, "sent to") ||
-			strings.Contains(line, "paid to") || strings.Contains(line, "received")) {
-
-			// Save previous transaction if exists
-			if inTransaction {
-				transactions = append(transactions, currentTx)
+		lines := strings.Split(segment, "\n")
+		message := strings.TrimSpace(lines[0])
+		var meta []string
+		for _, ln := range lines[1:] {
+			lt := strings.TrimSpace(ln)
+			if lt == "" {
+				continue
 			}
-
-			// Start new transaction
-			currentTx = TransactionData{
-				Message:  line,
-				Metadata: []string{},
-			}
-			inTransaction = true
-		} else if inTransaction {
-			// This is metadata for current transaction
-			l := strings.ToLower(line)
-			if strings.HasPrefix(l, "c:") || strings.HasPrefix(l, "category:") ||
-				strings.HasPrefix(l, "r:") || strings.HasPrefix(l, "reason:") {
-				currentTx.Metadata = append(currentTx.Metadata, line)
+			low := strings.ToLower(lt)
+			if strings.HasPrefix(low, "c:") || strings.HasPrefix(low, "category:") ||
+				strings.HasPrefix(low, "r:") || strings.HasPrefix(low, "reason:") {
+				meta = append(meta, lt)
 			}
 		}
+		transactions = append(transactions, TransactionData{Message: message, Metadata: meta})
 	}
-
-	// Add the last transaction
-	if inTransaction {
-		transactions = append(transactions, currentTx)
-	}
-
 	return transactions
 }
 
