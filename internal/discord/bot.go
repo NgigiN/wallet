@@ -115,18 +115,38 @@ func (b *Bot) handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 func parseMetadata(lines []string) (category, reason string) {
 	category = "uncategorized"
+
 	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "Category: ") {
-			category = strings.TrimSpace(strings.TrimPrefix(line, "Category: "))
-		} else if strings.HasPrefix(line, "c: ") {
-			category = strings.TrimSpace(strings.TrimPrefix(line, "c: "))
-		} else if strings.HasPrefix(line, "Reason: ") {
-			reason = strings.TrimSpace(strings.TrimPrefix(line, "Reason: "))
-		} else if strings.HasPrefix(line, "r: ") {
-			reason = strings.TrimSpace(strings.TrimPrefix(line, "r: "))
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+
+		// Case-insensitive parsing with flexible spacing, supports:
+		// "Category: food", "category: food", "c: food", "c:food"
+		// "Reason: lunch", "reason: lunch", "r: lunch", "r:lunch"
+		lower := strings.ToLower(trimmed)
+
+		// Find the first colon to split key:value
+		colonIdx := strings.Index(lower, ":")
+		if colonIdx == -1 {
+			continue
+		}
+
+		key := strings.TrimSpace(lower[:colonIdx])
+		value := strings.TrimSpace(trimmed[colonIdx+1:]) // preserve original casing for value
+
+		switch key {
+		case "category", "c":
+			if value != "" {
+				category = value
+			}
+		case "reason", "r":
+			// reason is optional
+			reason = value
 		}
 	}
+
 	return category, reason
 }
 
