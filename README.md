@@ -5,10 +5,15 @@ A Discord bot that automatically parses and categorizes M-PESA transaction messa
 ## Features
 
 - **Automated M-PESA Parsing**: Extracts transaction details from M-PESA SMS messages
+- **Batch Processing**: Process multiple transactions in a single message
 - **Category Management**: Supports predefined categories (food, travel, savings, church, investments)
+- **Flexible Metadata**: Use full or abbreviated forms (`Category:` or `c:`, `Reason:` or `r:`)
 - **SQLite Storage**: Persistent transaction storage with GORM ORM
 - **Discord Integration**: Real-time message processing and feedback
 - **Transaction Validation**: Ensures data integrity and proper formatting
+- **Summary Commands**: View transaction summaries by category
+- **Health Monitoring**: Built-in health check endpoint
+- **Unicode Cleaning**: Handles invisible characters from Discord messages
 
 ## Architecture
 
@@ -21,10 +26,15 @@ internal/
 ├── discord/
 │   └── bot.go             # Discord bot implementation
 ├── mpesa/
-│   └── parser.go          # M-PESA message parsing logic
+│   ├── parser.go          # M-PESA message parsing logic
+│   └── parser_test.go     # Parser tests
 └── storage/
     ├── db.go              # Database operations
     └── models.go          # Data models
+.github/
+└── workflows/
+    └── deploy.yml         # GitHub Actions CI/CD
+start_app.sh               # Deployment script
 ```
 
 ## Prerequisites
@@ -55,7 +65,7 @@ internal/
 
 4. **Build the application**
    ```bash
-   go build -o irs cmd/main.go
+   go build -o financial-tracker cmd/main.go
    ```
 
 ## Usage
@@ -63,7 +73,7 @@ internal/
 ### Starting the Bot
 
 ```bash
-./irs
+./financial-tracker
 ```
 
 The bot will:
@@ -72,14 +82,58 @@ The bot will:
 - Process M-PESA transaction messages
 - Store valid transactions in the database
 
-### Message Format
+### Single Transaction Format
 
 Send M-PESA transaction messages in the following format:
 
 ```
-TID60759AQ Confirmed. Ksh300.00 sent to Margaret Njuguna on 13/9/25 at 9:24 AM. New M-PESA balance is Ksh1,761.18. Transaction cost, Ksh7.00. Amount you can transact within the day is 499,700.00. Sign up for Lipa Na M-PESA Till online https://m-pesaforbusiness.co.ke/
+TID60759AQ Confirmed. Ksh300.00 sent to Margaret Njuguna on 13/9/25 at 9:24 AM. New M-PESA balance is Ksh1,761.18. Transaction cost, Ksh7.00.
 Category: food
 Reason: at home
+```
+
+### Batch Processing
+
+Process multiple transactions at once by sending them in a single message:
+
+```
+TIL4XR5BBM Confirmed. Ksh25.00 sent to Caroline Mwania on 21/9/25 at 7:00 PM. New M-PESA balance is Ksh164.18. Transaction cost, Ksh0.00.
+Category: food
+Reason: water
+
+TIL3XTT9WB Confirmed. Ksh40.00 sent to Divinah Nyabuto on 21/9/25 at 7:10 PM. New M-PESA balance is Ksh124.18. Transaction cost, Ksh0.00.
+Category: food
+
+TIL7XUOPX7 Confirmed. Ksh80.00 sent to Meshack Mbindyo on 21/9/25 at 7:13 PM. New M-PESA balance is Ksh44.18. Transaction cost, Ksh0.00.
+Category: food
+```
+
+### Supported Message Variants
+
+The parser handles various M-PESA message formats:
+- **Outgoing transactions**: "sent to", "paid to"
+- **Incoming transactions**: "received from"
+- **Balance types**: "New M-PESA balance is" or "New business balance is"
+- **Time formats**: "6:56 PM" or "6:56PM" (normalized automatically)
+- **Optional fields**: "for account ..." in recipient names
+
+### Metadata Formats
+
+Use either full or abbreviated forms (case-insensitive):
+
+| Full Form | Abbreviated Form |
+|-----------|------------------|
+| `Category: food` | `c: food` |
+| `Reason: lunch` | `r: lunch` |
+
+### Summary Commands
+
+View transaction summaries:
+
+```
+!summary                    # Show all categories with totals
+!summary food              # Show detailed food transactions
+!summary travel            # Show detailed travel transactions
 ```
 
 ### Supported Categories
@@ -128,8 +182,23 @@ The `ParseMPesaMessage` function extracts:
 The bot processes messages with:
 - **Message validation**: Ensures proper M-PESA format
 - **Category validation**: Verifies against allowed categories
-- **Database storage**: Persists transaction data
+- **Database storage**: Persists transaction data with retry logic
 - **User feedback**: Confirms successful processing
+- **Batch processing**: Handles multiple transactions in one message
+- **Duplicate detection**: Skips duplicate transactions gracefully
+
+### Health Check
+
+The bot exposes a health check endpoint at `http://localhost:8080/health`:
+
+```json
+{
+    "status": "healthy",
+    "uptime": "2h30m15s",
+    "discord_connected": true,
+    "timestamp": "2024-01-15T10:30:45Z"
+}
+```
 
 ## Development
 
@@ -148,59 +217,192 @@ The bot processes messages with:
 - `gorm.io/gorm` - ORM for database operations
 - `gorm.io/driver/sqlite` - SQLite database driver
 
+### Running Tests
+
+```bash
+# Run all tests
+go test ./...
+
+# Run specific package tests
+go test ./internal/mpesa/
+```
+
 ### Building for Production
 
 ```bash
 # Build for Linux
-GOOS=linux GOARCH=amd64 go build -o irs-linux cmd/main.go
+GOOS=linux GOARCH=amd64 go build -o financial-tracker-linux cmd/main.go
 
 # Build for Windows
-GOOS=windows GOARCH=amd64 go build -o irs.exe cmd/main.go
+GOOS=windows GOARCH=amd64 go build -o financial-tracker.exe cmd/main.go
 
 # Build for macOS
-GOOS=darwin GOARCH=amd64 go build -o irs-macos cmd/main.go
+GOOS=darwin GOARCH=amd64 go build -o financial-tracker-macos cmd/main.go
 ```
 
 ## Deployment
 
-### Docker Deployment
+### Docker Deployment (Recommended)
 
-Create a `Dockerfile`:
+The project uses Docker for containerized deployment with a multi-stage build process.
 
-```dockerfile
-FROM golang:1.24-alpine AS builder
-WORKDIR /app
-COPY . .
-RUN go mod download
-RUN go build -o irs cmd/main.go
+#### Dockerfile Features
 
-FROM alpine:latest
-RUN apk --no-cache add ca-certificates
-WORKDIR /root/
-COPY --from=builder /app/irs .
-COPY --from=builder /app/.env .
-CMD ["./irs"]
+- **Multi-stage build**: Optimized for small final image size
+- **Static compilation**: CGO_ENABLED=0 for maximum compatibility
+- **Alpine Linux**: Minimal runtime environment
+- **Health check port**: Exposes port 8080 for monitoring
+
+#### GitHub Actions CI/CD
+
+The project includes automated Docker deployment via GitHub Actions:
+
+1. **Set up repository secrets**:
+   - `SERVER_HOST`: Your server IP address
+   - `SERVER_USER`: Your server username
+   - `SERVER_SSH_KEY`: Your private SSH key
+   - `SERVER_PORT`: SSH port (usually 22)
+   - `DISCORD_BOT_TOKEN`: Your Discord bot token
+   - `DISCORD_CHANNEL_ID`: Your Discord channel ID
+
+2. **Deployment process**:
+   - Push to `main` branch triggers deployment
+   - Tests run automatically
+   - Docker image is built on the server
+   - Old container is stopped and removed
+   - New container is started in detached mode
+   - Health check verifies deployment success
+
+#### Manual Docker Deployment
+
+1. **Set up environment**:
+   ```bash
+   # Install Docker
+   sudo apt update && sudo apt install -y docker.io
+   sudo systemctl start docker
+   sudo systemctl enable docker
+   sudo usermod -aG docker $USER
+
+   # Create app directory
+   sudo mkdir -p /home/deploy/opt/wallet && sudo chown $USER:$USER /home/deploy/opt/wallet
+   cd /home/deploy/opt/wallet
+
+   # Clone repository
+   git clone https://github.com/yourusername/irs.git .
+   ```
+
+2. **Configure environment**:
+   ```bash
+   # Create data directory for SQLite
+   mkdir -p data
+
+   # Make deployment script executable
+   chmod +x start_app.sh
+   ```
+
+3. **Deploy**:
+   ```bash
+   # Pull latest changes
+   git pull origin main
+
+   # Set environment variables and run deployment script
+   DISCORD_BOT_TOKEN="your_token" DISCORD_CHANNEL_ID="your_channel_id" ./start_app.sh
+   ```
+
+#### Docker Commands
+
+```bash
+# Build image manually
+docker build -t wallet-irs:latest .
+
+# Run container manually
+docker run -d \
+  --name financial-tracker-bot \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  -v /home/deploy/opt/wallet/data:/app/data \
+  -e DISCORD_BOT_TOKEN="your_token" \
+  -e DISCORD_CHANNEL_ID="your_channel_id" \
+  wallet-irs:latest
+
+# Check container status
+docker ps --filter name=financial-tracker-bot
+
+# View container logs
+docker logs financial-tracker-bot
+
+# Stop and remove container
+docker rm -f financial-tracker-bot
 ```
 
-### Systemd Service
+### Direct Go Deployment (Alternative)
 
-Create `/etc/systemd/system/irs.service`:
+For non-Docker environments:
 
-```ini
-[Unit]
-Description=IRS Discord Bot
-After=network.target
+1. **Set up environment**:
+   ```bash
+   # Install Go
+   sudo apt update && sudo apt install -y golang-go
 
-[Service]
-Type=simple
-User=irs
-WorkingDirectory=/opt/irs
-ExecStart=/opt/irs/irs
-Restart=always
-RestartSec=5
+   # Create app directory
+   sudo mkdir -p /opt/irs && sudo chown $USER:$USER /opt/irs
+   cd /opt/irs
 
-[Install]
-WantedBy=multi-user.target
+   # Clone repository
+   git clone https://github.com/yourusername/irs.git .
+   ```
+
+2. **Configure environment**:
+   ```bash
+   # Create .env file
+   nano .env
+   # Add: DISCORD_BOT_TOKEN=your_token
+   # Add: DISCORD_CHANNEL_ID=your_channel_id
+
+   # Make deployment script executable
+   chmod +x start_app.sh
+   ```
+
+3. **Deploy**:
+   ```bash
+   # Pull latest changes
+   git pull origin main
+
+   # Run deployment script
+   ./start_app.sh
+   ```
+
+### Docker Compose (Optional)
+
+For easier container management, create `docker-compose.yml`:
+
+```yaml
+version: '3.8'
+
+services:
+  irs-bot:
+    build: .
+    container_name: financial-tracker-bot
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
+      - DISCORD_CHANNEL_ID=${DISCORD_CHANNEL_ID}
+```
+
+Usage:
+```bash
+# Start with docker-compose
+docker-compose up -d
+
+# Stop with docker-compose
+docker-compose down
+
+# View logs
+docker-compose logs -f
 ```
 
 ## Configuration
@@ -226,6 +428,36 @@ The application logs:
 - Message processing errors
 - Database operation failures
 - Configuration loading issues
+- Batch processing results
+
+### Health Monitoring
+
+#### Docker Deployment
+```bash
+# Check if container is running
+docker ps --filter name=financial-tracker-bot
+
+# Check health endpoint
+curl http://localhost:7070/health
+
+# View container logs
+docker logs financial-tracker-bot
+
+# Follow logs in real-time
+docker logs -f financial-tracker-bot
+```
+
+#### Direct Go Deployment
+```bash
+# Check if bot is running
+ps aux | grep financial-tracker
+
+# Check health endpoint
+curl http://localhost:7070/health
+
+# View logs
+tail -f app.log
+```
 
 ## Troubleshooting
 
@@ -239,11 +471,51 @@ The application logs:
 
 3. **"Invalid Mpesa Message"**
    - Check message format matches expected pattern
-   - Verify date/time parsing (recently fixed AM/PM duplication bug)
+   - Verify date/time parsing
+   - Ensure no invisible Unicode characters
 
 4. **"Failed to save transaction"**
    - Check database file permissions
    - Ensure SQLite database is accessible
+   - Check for duplicate transaction IDs
+
+5. **Batch processing only handles first transaction**
+   - Ensure message contains multiple "Confirmed" patterns
+   - Check for invisible Unicode characters
+   - Verify proper line breaks between transactions
+
+6. **"UNIQUE constraint failed"**
+   - Transaction already exists in database
+   - Bot will skip duplicates and report them in batch summary
+
+### Debugging
+
+#### Docker Deployment
+```bash
+# Check container logs
+docker logs financial-tracker-bot
+
+# Execute commands inside container
+docker exec -it financial-tracker-bot sh
+
+# Check database (if mounted)
+sqlite3 data/transaction.db "SELECT COUNT(*) FROM transactions;"
+
+# Test parser manually
+docker exec -it financial-tracker-bot go test ./internal/mpesa/ -v
+```
+
+#### Direct Go Deployment
+```bash
+# Check bot logs
+tail -f app.log
+
+# Test parser manually
+go test ./internal/mpesa/ -v
+
+# Check database
+sqlite3 transaction.db "SELECT COUNT(*) FROM transactions;"
+```
 
 ## Contributing
 
@@ -263,3 +535,4 @@ For issues and questions:
 - Create an issue on GitHub
 - Check the troubleshooting section
 - Review Discord bot permissions and channel access
+- Check application logs for detailed error messages

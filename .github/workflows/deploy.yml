@@ -34,7 +34,10 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Deploy and Start
+    - name: Deploy and Start Docker Container
+      env:
+        DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+        DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
       uses: appleboy/ssh-action@v1.0.3
       with:
         host: ${{ secrets.SERVER_HOST }}
@@ -47,12 +50,13 @@ jobs:
 
           chmod +x start_app.sh
 
-          ./start_app.sh
+          # Pass the secrets to the script
+          DISCORD_BOT_TOKEN="${DISCORD_BOT_TOKEN}" DISCORD_CHANNEL_ID="${DISCORD_CHANNEL_ID}" ./start_app.sh
 
     - name: Health Check
       run: sleep 10
 
-    - name: Verify Application is Running
+    - name: Verify Docker Container is Running
       uses: appleboy/ssh-action@v1.0.3
       with:
         host: ${{ secrets.SERVER_HOST }}
@@ -62,18 +66,20 @@ jobs:
         script: |
           cd /home/deploy/opt/wallet
 
-          if pgrep -f financial-tracker > /dev/null; then
-            echo "Application started successfully"
-            echo "Process ID: $(pgrep -f financial-tracker)"
-            echo "Process status:"
-            ps aux | grep financial-tracker | grep -v grep
+          # Check if Docker container is running
+          if docker ps | grep -q financial-tracker-bot; then
+            echo "Docker container started successfully"
+            echo "Container status:"
+            docker ps --filter name=financial-tracker-bot
+            echo "Container logs (last 10 lines):"
+            docker logs --tail 10 financial-tracker-bot
             echo "Health check:"
-            curl -s http://localhost:8080/health || echo "Health endpoint not responding"
+            curl -s http://localhost:7070/health || echo "Health endpoint not responding"
           else
-            echo "Application failed to start"
-            echo "Recent logs:"
-            tail -20 app.log
-            echo "Checking if process exists:"
-            ps aux | grep financial-tracker
+            echo "Docker container failed to start"
+            echo "All containers:"
+            docker ps -a
+            echo "Container logs:"
+            docker logs financial-tracker-bot || echo "No logs available"
             exit 1
           fi

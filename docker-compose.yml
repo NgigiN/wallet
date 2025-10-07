@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  irs-bot:
+    build: .
+    container_name: financial-tracker-bot
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
+      - DISCORD_CHANNEL_ID=${DISCORD_CHANNEL_ID}
