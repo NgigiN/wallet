@@ -20,13 +20,22 @@ docker rm -f ${CONTAINER_NAME} || true # '|| true' prevents the script from fail
 
 # 3. Run the new container in detached mode (-d)
 echo "Starting new container: ${CONTAINER_NAME}"
+
+# Check if .env file exists, if not create it with the environment variables
+if [ ! -f .env ]; then
+    echo "Creating .env file from environment variables"
+    cat > .env << EOF
+DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
+DISCORD_CHANNEL_ID=${DISCORD_CHANNEL_ID}
+EOF
+fi
+
 docker run -d \
   --name ${CONTAINER_NAME} \
   --restart unless-stopped \
   -p ${PORT}:8080 \
+  --env-file /home/deploy/opt/wallet/.env \
   -v /home/deploy/opt/wallet/data:/app/data \
-  -e DISCORD_BOT_TOKEN="${DISCORD_BOT_TOKEN}" \
-  -e DISCORD_CHANNEL_ID="${DISCORD_CHANNEL_ID}" \
   ${IMAGE_TAG}
 
 # The script finishes, but the container keeps running in the background.

@@ -13,12 +13,9 @@ import (
 )
 
 func main() {
-	// Try to load .env file for local development, but don't fail if it doesn't exist
-	// In Docker/production, environment variables are passed via -e flags
 	err := godotenv.Load()
 	if err != nil {
-		// Only log a warning, don't fail - environment variables might be set directly
-		log.Printf("Warning: Could not load .env file: %v (this is OK if using environment variables)", err)
+		log.Fatalf("Error loading .env file: %v", err)
 	}
 
 	cfg, err := config.Load()

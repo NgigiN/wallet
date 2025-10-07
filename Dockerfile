@@ -30,6 +30,10 @@ WORKDIR /app
 # Copy the built executable from the 'builder' stage
 COPY --from=builder /app/financial-tracker .
 
+# Copy the .env file for runtime configuration
+# Note: This will be overridden by --env-file at runtime, but ensures the file exists
+COPY --from=builder /app/.env .
+
 # The application uses SQLite, so we need to ensure the directory exists for the DB file.
 RUN mkdir -p /app/data
 

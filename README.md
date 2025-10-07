@@ -306,6 +306,7 @@ The project includes automated Docker deployment via GitHub Actions:
    git pull origin main
 
    # Set environment variables and run deployment script
+   # The script will create a .env file if it doesn't exist
    DISCORD_BOT_TOKEN="your_token" DISCORD_CHANNEL_ID="your_channel_id" ./start_app.sh
    ```
 
@@ -315,14 +316,13 @@ The project includes automated Docker deployment via GitHub Actions:
 # Build image manually
 docker build -t wallet-irs:latest .
 
-# Run container manually
+# Run container manually with .env file
 docker run -d \
   --name financial-tracker-bot \
   --restart unless-stopped \
   -p 8080:8080 \
+  --env-file .env \
   -v /home/deploy/opt/wallet/data:/app/data \
-  -e DISCORD_BOT_TOKEN="your_token" \
-  -e DISCORD_CHANNEL_ID="your_channel_id" \
   wallet-irs:latest
 
 # Check container status
