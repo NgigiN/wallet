@@ -2,6 +2,9 @@
 # Use the official Go image for building
 FROM golang:1.24.6-alpine AS builder
 
+# Install build tools required for CGO compilation
+RUN apk add --no-cache gcc musl-dev
+
 # Set the working directory inside the container
 WORKDIR /app
 
