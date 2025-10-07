@@ -249,8 +249,8 @@ The project uses Docker for containerized deployment with a multi-stage build pr
 #### Dockerfile Features
 
 - **Multi-stage build**: Optimized for small final image size
-- **Static compilation**: CGO_ENABLED=0 for maximum compatibility
-- **Alpine Linux**: Minimal runtime environment
+- **CGO enabled**: Required for SQLite database functionality
+- **Alpine Linux**: Minimal runtime environment with SQLite support
 - **Health check port**: Exposes port 8080 for monitoring
 
 #### GitHub Actions CI/CD

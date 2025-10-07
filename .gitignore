@@ -267,3 +267,5 @@ docker compose.override.yml
 .local/
 
 DEPLOYMENT.md
+
+financial-tracker

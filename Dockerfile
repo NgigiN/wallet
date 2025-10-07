@@ -17,12 +17,15 @@ COPY . .
 # -ldflags="-w -s" reduces the executable size
 # -o specifies the output name (matching your pgrep in the workflow)
 # cmd/main.go is the entry point (from your architecture)
-# Set GOOS and GOARCH for static compilation on Linux (good practice)
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -ldflags '-w -s' -o financial-tracker cmd/main.go
+# CGO_ENABLED=1 is required for SQLite to work
+RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -a -ldflags '-w -s' -o financial-tracker cmd/main.go
 
 # --- STAGE 2: Create the final, small runtime image ---
 # Use a minimal base image, like Alpine Linux
 FROM alpine:3.18
+
+# Install necessary libraries for CGO and SQLite
+RUN apk --no-cache add ca-certificates sqlite
 
 # Set working directory
 WORKDIR /app
