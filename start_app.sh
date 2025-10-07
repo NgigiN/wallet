@@ -23,7 +23,7 @@ echo "Starting new container: ${CONTAINER_NAME}"
 docker run -d \
   --name ${CONTAINER_NAME} \
   --restart unless-stopped \
-  -p ${PORT}:${PORT} \
+  -p ${PORT}:8080 \
   -v /home/deploy/opt/wallet/data:/app/data \
   -e DISCORD_BOT_TOKEN="${DISCORD_BOT_TOKEN}" \
   -e DISCORD_CHANNEL_ID="${DISCORD_CHANNEL_ID}" \

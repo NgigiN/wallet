@@ -74,7 +74,7 @@ jobs:
             echo "Container logs (last 10 lines):"
             docker logs --tail 10 financial-tracker-bot
             echo "Health check:"
-            curl -s http://localhost:7070/health || echo "Health endpoint not responding"
+            curl -s http://localhost:8080/health || echo "Health endpoint not responding"
           else
             echo "Docker container failed to start"
             echo "All containers:"

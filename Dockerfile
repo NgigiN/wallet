@@ -34,7 +34,7 @@ COPY --from=builder /app/financial-tracker .
 RUN mkdir -p /app/data
 
 # Expose the port for the health check (optional, but good documentation)
-EXPOSE 7070
+EXPOSE 8080
 
 # The command to run the application
 # This is the single, non-forking process that Docker expects to be PID 1

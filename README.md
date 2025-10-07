@@ -438,7 +438,7 @@ The application logs:
 docker ps --filter name=financial-tracker-bot
 
 # Check health endpoint
-curl http://localhost:7070/health
+curl http://localhost:8080/health
 
 # View container logs
 docker logs financial-tracker-bot
@@ -453,7 +453,7 @@ docker logs -f financial-tracker-bot
 ps aux | grep financial-tracker
 
 # Check health endpoint
-curl http://localhost:7070/health
+curl http://localhost:8080/health
 
 # View logs
 tail -f app.log
