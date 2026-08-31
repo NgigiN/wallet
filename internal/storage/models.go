@@ -17,4 +17,6 @@ type Transaction struct {
 	Cost          float64
 	Category      string
 	Reason        string
+	Direction     string // "in" | "out" | "transfer"; empty on legacy rows (treated as "out")
+	Source        string // "mpesa" | "airtel"; empty on legacy rows (treated as "mpesa")
 }
