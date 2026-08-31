@@ -924,34 +924,17 @@ and change the ports mapping so 8080 is loopback-only (nginx fronts it):
 
 In `.github/workflows/deploy.yml`, wherever `DISCORD_BOT_TOKEN` is passed to the server/.env, add `API_TOKEN: ${{ secrets.API_TOKEN }}` the same way. Add the `API_TOKEN` repo secret in GitHub (generate: `openssl rand -hex 32`). In `README.md`'s environment-variables table add rows for `API_TOKEN` (required) and `DB_PATH` (default `transaction.db`; set `data/transaction.db` in Docker).
 
-- [ ] **Step 4: Create `deploy/nginx-wallet.conf`**
+- [ ] **Step 4: Install `deploy/nginx-wallet.conf` on the VPS** (user's house style: `block-probes.conf` + `cloudflare-realip.conf` snippets, 80→443 redirect, Let's Encrypt certs — the repo file carries the full config and first-time install steps in its header comment)
 
-```nginx
-# /etc/nginx/sites-available/wallet — reverse proxy for the wallet API.
-# Replace wallet.example.com with the real (sub)domain, then:
-#   ln -s /etc/nginx/sites-available/wallet /etc/nginx/sites-enabled/
-#   nginx -t && systemctl reload nginx
-#   certbot --nginx -d wallet.example.com
-server {
-    listen 80;
-    server_name wallet.example.com;
-
-    location / {
-        proxy_pass http://127.0.0.1:8080;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
+Domain: **wallet.samtama.lol**, Cloudflare-proxied to the VPS (193.187.129.179). Because the cert doesn't exist yet: add the Cloudflare A record, install the port-80 block only, run `certbot --nginx -d wallet.samtama.lol`, then install the full file and reload. The old `irs-bot` site (IP-based `/health` proxy) is superseded — remove its sites-enabled symlink.
 
 - [ ] **Step 5: Deploy with the user and verify**
 
-With the user: pick the subdomain, point DNS at the server, install the nginx config, run certbot, set the `API_TOKEN` secret, then push to `main` to trigger deploy. Verify from outside:
+With the user: set the `API_TOKEN` GitHub secret, then push to `main` to trigger deploy. Verify from outside:
 
 ```bash
-curl -s https://wallet.example.com/health
-curl -s https://wallet.example.com/api/transactions -H "Authorization: Bearer $API_TOKEN" | head -c 200
+curl -s https://wallet.samtama.lol/health
+curl -s https://wallet.samtama.lol/api/transactions -H "Authorization: Bearer $API_TOKEN" | head -c 200
 sqlite3 data/transaction.db "SELECT COUNT(*) FROM transactions;"  # on server: count unchanged after redeploy
 ```
 
