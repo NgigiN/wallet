@@ -90,8 +90,47 @@ object SmsParser {
             ParseResult.Ignore
         }
 
-    // Implemented in a later task.
-    private fun parseAirtel(body: String, zone: ZoneId): ParseResult = ParseResult.Ignore
+    private const val AMONEY = """[\d,]+(?:\.\d+)?"""
+    private val airtel24h = Regex(
+        """^([A-Za-z0-9]+)\.\s+Ksh\s*($AMONEY)\s+(?:sent|paid) to\s+(.+?)\s+on\s+(\d{2}/\d{2}/\d{4})\s+(\d{2}:\d{2})\.\s*Fee:?\s*Ksh\s*($AMONEY)\.\s*Bal:?\s*Ksh\s*($AMONEY)""",
+        RegexOption.IGNORE_CASE
+    )
+    private val airtel12h = Regex(
+        """^([A-Za-z0-9]+)\.\s+Ksh\s*($AMONEY)\s+(?:sent|paid) to\s+(.+?)\s+on\s+(\d{2}/\d{2}/\d{2})\s+at\s+(\d{2}:\d{2})\s*([AP]M)\.\s*Fee:?\s*Ksh\s*($AMONEY)\.\s*Bal:?\s*Ksh\s*($AMONEY)""",
+        RegexOption.IGNORE_CASE
+    )
+    private val airtelTransactional = Regex("""^[A-Za-z0-9]{8,}\.\s+Ksh""")
+    private val airtel24hFmt = DateTimeFormatter.ofPattern("dd/MM/uuuu HH:mm", Locale.ENGLISH)
+    private val airtel12hFmt = DateTimeFormatter.ofPattern("dd/MM/uu hh:mm a", Locale.ENGLISH)
+
+    private fun parseAirtel(body: String, zone: ZoneId): ParseResult {
+        airtel24h.find(body)?.let { m ->
+            val (id, amount, who, date, time, fee, bal) = m.destructured
+            val millis = try {
+                LocalDateTime.parse("$date $time", airtel24hFmt).atZone(zone).toInstant().toEpochMilli()
+            } catch (e: Exception) {
+                return failedDate()
+            }
+            return ParseResult.Tx(id, money(amount), Direction.OUT, Source.AIRTEL,
+                cleanName(who), millis, money(bal), money(fee))
+        }
+        airtel12h.find(body)?.let { m ->
+            val (id, amount, who, date, time, ampm, fee, bal) = m.destructured
+            val millis = try {
+                LocalDateTime.parse("$date $time ${ampm.uppercase()}", airtel12hFmt)
+                    .atZone(zone).toInstant().toEpochMilli()
+            } catch (e: Exception) {
+                return failedDate()
+            }
+            return ParseResult.Tx(id, money(amount), Direction.OUT, Source.AIRTEL,
+                cleanName(who), millis, money(bal), money(fee))
+        }
+        return if (airtelTransactional.containsMatchIn(body)) {
+            ParseResult.Failed("unrecognized Airtel transaction format")
+        } else {
+            ParseResult.Ignore
+        }
+    }
 
     internal fun money(raw: String): Double =
         raw.replace("Ksh", "", ignoreCase = true).replace(",", "").trim().toDouble()
