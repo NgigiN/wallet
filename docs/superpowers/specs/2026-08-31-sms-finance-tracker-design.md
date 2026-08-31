@@ -27,6 +27,8 @@ left is choosing a category — and even that can be deferred without data loss.
 | Local storage | Full replica kept on phone (no pruning) so stats work offline |
 | Stack | Kotlin + Jetpack Compose, native Android, sideloaded APK |
 | Categories (v1) | Hardcoded: food, travel, savings, church, investments, income |
+| Monitored senders | `MPESA`, `airtelmoney`/`AirtelMoney` — matched case-insensitively (confirmed from the user's inbox; `AIRTEL`/`Airtel`/`REVERSAL` carry only promos/status notices) |
+| Target device | CPH2799, Android 16 / API 36 (verified via ADB) — minSdk 26 stands |
 
 Play Store SMS-permission policy is irrelevant: personal sideloaded APK.
 
@@ -72,8 +74,8 @@ Permissions: `RECEIVE_SMS`, `POST_NOTIFICATIONS`, `INTERNET`. minSdk 26.
 ### 4.1 SmsReceiver
 Manifest-registered receiver for `android.provider.Telephony.SMS_RECEIVED`
 (fires even when the app process is dead; exempt from implicit-broadcast
-limits). Filters on sender ID ∈ {`MPESA`, Airtel Money's exact sender ID —
-**to be confirmed from the user's inbox**}. Routing:
+limits). Filters case-insensitively on sender ID ∈ {`MPESA`,
+`airtelmoney`} (Airtel uses both `airtelmoney` and `AirtelMoney`). Routing:
 
 - Body matches a transaction pattern → parse → insert row → notify.
 - Body is clearly non-transactional (promos from the same sender IDs) →
@@ -82,19 +84,56 @@ limits). Filters on sender ID ∈ {`MPESA`, Airtel Money's exact sender ID —
   and the raw body; surfaces in the inbox for manual entry. Never dropped.
 
 ### 4.2 TransactionParser
-Port of `internal/mpesa/parser.go` regex and normalizations, plus:
+Port of `internal/mpesa/parser.go` regex and normalizations, extended to the
+full variant inventory confirmed from the user's actual inbox (573 M-PESA +
+165 Airtel messages surveyed via ADB on 2026-08-31):
 
-- **Money-in variants** ("received from", "You have received…"). Note: the
-  current Go parser only matches outgoing (`sent|paid to`) despite the README
-  claiming otherwise — the Kotlin parser is the superset and becomes the only
-  parser that matters, since the server now ingests structured JSON.
-- **Airtel Money formats** — requires real sample messages from the user
-  (amounts/names may be redacted; structure must be verbatim).
-- Existing Go test cases ported as JVM unit tests; every new variant gets a
-  sample-backed test.
+**M-PESA outgoing** (direction = out):
+- "sent to" (312 msgs) and "paid to" (177 msgs) — the existing Go pattern.
+- Agent withdrawal (2 msgs): `<ID> Confirmed.on <date> at <time>Withdraw
+  Ksh<amt> from <agent> New M-PESA balance is …` — date *precedes* the verb,
+  often with no space before "Withdraw"; has transaction cost.
 
-Output: txn ID, amount, direction (in/out), counterparty, datetime, balance,
-cost, source (mpesa/airtel).
+**M-PESA incoming** (direction = in):
+- `<ID> Confirmed.You have received Ksh<amt> from <name> on <date> at
+  <time> New M-PESA balance is …` — quirks seen in real data: lowercase
+  `confirmed`, no space after `Confirmed.`, optional `in FR via EQT` after
+  the name, masked phone (`0711***155`) in the name, `New business balance`
+  variant, **no transaction cost**, trailing marketing text.
+
+**Inter-wallet transfer** (direction = transfer, 36 msgs): `<ID> Confirmed,
+Ksh<amt> has been moved from your M-PESA account to your Pochi account …`
+(and the reverse). Auto-tagged `transfer` with **no prompt** — purpose is
+self-evident — synced immediately, and excluded from spend/income totals in
+stats. This fixes the inter-wallet miscategorization the blog complained
+about.
+
+**Airtel Money outgoing** (direction = out) — two formats, and the *same
+transaction can arrive as both* (dedup by txn ID handles it):
+- `<ID>. Ksh <amt> paid to <name> account <acc> on DD/MM/YYYY HH:MM. Fee
+  Ksh <f>. Bal:Ksh <b>. MPESA ID:<ref>` — 24-hour time, 4-digit year.
+- `<ID>. Ksh <amt> sent to <name> <phone> on DD/MM/YY at HH:MM AM/PM. Fee:
+  Ksh <f>. Bal: Ksh <b>.` — 12-hour time, 2-digit year, colon spacing
+  differs. No `Confirmed` token in either format.
+
+**Airtel Money incoming:** no genuine sample exists in the inbox (all
+"received" hits are bonus-wallet promos). Unknown transactional formats fall
+into `PARSE_FAILED` and are captured for manual entry; the regex is added
+when a real sample arrives.
+
+**Ignorable, from the same sender IDs** (no txn ID + amount + action
+pattern): "Transaction failed…" notices, Fuliza registration nags,
+Pochi join notices, bonus/cashback promos. Transactional-looking heuristic:
+M-PESA — contains `confirmed` (any case); Airtel — starts with an
+alphanumeric txn ID followed by `. Ksh`.
+
+Existing Go test cases ported as JVM unit tests; every variant above gets a
+sample-backed test using **anonymized** copies of the real messages (raw
+samples live outside the repo — it is public and they contain personal
+data).
+
+Output: txn ID, amount, direction (in/out/transfer), counterparty, datetime,
+balance, cost, source (mpesa/airtel).
 
 ### 4.3 Room schema
 ```
@@ -102,7 +141,7 @@ transactions(
   id            PK autoincrement,
   txn_id        TEXT UNIQUE,
   amount        REAL,
-  direction     TEXT,      -- 'in' | 'out'
+  direction     TEXT,      -- 'in' | 'out' | 'transfer'
   source        TEXT,      -- 'mpesa' | 'airtel'
   counterparty  TEXT,
   date_time     INTEGER,   -- epoch millis
@@ -126,7 +165,8 @@ categories** (from local usage counts; defaults food, travel) + **More…**.
   (amount, direction, counterparty, time, source), category grid, optional
   reason field, Save.
 
-Both directions (in and out) get the same prompt and category list.
+Both in and out get the same prompt and category list. `transfer` rows skip
+the prompt entirely (auto-tagged `transfer`, synced immediately).
 
 ### 4.5 Untagged inbox (home screen)
 List of `UNTAGGED` and `PARSE_FAILED` rows, newest first, badge count.
@@ -138,7 +178,8 @@ notification (WorkManager periodic) while the inbox is non-empty.
 Computed locally from Room with SQL aggregations; works offline.
 
 - Period tabs Week / Month / Year with ◀ ▶ navigation.
-- Totals bar: money in, money out, net for the period.
+- Totals bar: money in, money out, net for the period (`transfer` rows
+  excluded from all totals; transaction costs/fees count as spend).
 - Category table: spend per category, sorted desc, with % share.
 - Top spending days in the period.
 - Top 5 largest single expenses.
@@ -190,6 +231,8 @@ untouched.
 }
 ```
 
+`direction` ∈ `in | out | transfer`; `source` ∈ `mpesa | airtel`.
+
 Responses: `201` created · `200` duplicate `transaction_id` (idempotent
 retries) · `400` malformed · `401` bad/missing token.
 
@@ -199,17 +242,15 @@ same shape (personal scale, no pagination). Used only for hydration.
 ### 5.3 Schema
 Add `Direction` and `Source` columns to `storage.Transaction` via GORM
 automigrate. `counterparty` in the API maps to the existing `Recipient`
-column (no rename). Existing rows get empty direction/source; the Stats
-screen treats missing direction as `out` (all Discord-era rows were
-outgoing).
+column (no rename). Existing rows get empty direction/source; **all
+pre-existing rows are treated as direction = `out`** (confirmed by the user:
+everything currently in the system is outgoing).
 
 ### 5.4 Transport security
 Port 8080 is currently plain HTTP. The bearer token and financial data must
-not cross the internet unencrypted. Options, chosen at implementation time:
-
-1. **Tailscale** (recommended for a personal setup): phone and server on one
-   tailnet; server stays unexposed publicly.
-2. Reverse proxy (Caddy/nginx) with Let's Encrypt on the existing host.
+not cross the internet unencrypted. **Decision: nginx reverse proxy with
+Let's Encrypt on the existing host** (set up as part of implementation);
+8080 stops being exposed publicly and only nginx terminates TLS.
 
 ## 6. Error handling summary
 
@@ -245,10 +286,14 @@ not cross the internet unencrypted. Options, chosen at implementation time:
   `PARSE_FAILED`, so they are captured either way.
 - Multi-device, multi-user, Play Store distribution.
 
-## 9. Needed from the user before/at implementation
+## 9. Open items — all resolved 2026-08-31
 
-1. Real Airtel Money transaction SMS samples (structure verbatim) + the
-   exact sender ID string.
-2. Sample money-in M-PESA messages (received, deposit) to lock the regexes.
-3. Choice of Tailscale vs reverse-proxy TLS for the server.
-4. Android version of the target phone (to sanity-check minSdk).
+1. ~~Airtel samples + sender ID~~ → gathered via wireless ADB (§4.2);
+   senders are `airtelmoney`/`AirtelMoney`. Airtel *money-in* format still
+   unseen; handled by the `PARSE_FAILED` safety net until a sample exists.
+2. ~~M-PESA money-in samples~~ → gathered (§4.2).
+3. ~~TLS approach~~ → nginx + Let's Encrypt (§5.4).
+4. ~~Android version~~ → Android 16 / API 36, device CPH2799.
+
+Raw SMS dumps live in the session scratchpad only — never committed (public
+repo, personal data). Parser tests use anonymized copies.
