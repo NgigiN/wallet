@@ -22,6 +22,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.ngigi.wallet.data.AppDb
 import com.ngigi.wallet.notify.AndroidNotifier
+import com.ngigi.wallet.sync.Sync
 import com.ngigi.wallet.ui.InboxScreen
 
 class MainActivity : ComponentActivity() {
@@ -29,6 +30,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         AndroidNotifier.ensureChannels(this)
         requestNeededPermissions()
+        Sync.schedulePeriodic(this)
         val dao = AppDb.get(this).dao()
 
         setContent {
