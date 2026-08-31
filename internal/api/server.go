@@ -59,7 +59,11 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// handleTransactions dispatches per-method handlers added by later tasks.
 func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+	switch r.Method {
+	case http.MethodPost:
+		s.handlePost(w, r)
+	default:
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+	}
 }
