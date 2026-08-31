@@ -8,6 +8,8 @@ import (
 type Config struct {
 	DiscordBotToken  string
 	DiscordChannelId string
+	APIToken         string
+	DBPath           string
 }
 
 func Load() (*Config, error) {
@@ -20,8 +22,19 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("Channel ID is not set")
 	}
 
+	apiToken := os.Getenv("API_TOKEN")
+	if apiToken == "" {
+		return nil, fmt.Errorf("API token is not set")
+	}
+	dbPath := os.Getenv("DB_PATH")
+	if dbPath == "" {
+		dbPath = "transaction.db"
+	}
+
 	return &Config{
 		DiscordBotToken:  botToken,
 		DiscordChannelId: channelID,
+		APIToken:         apiToken,
+		DBPath:           dbPath,
 	}, nil
 }
