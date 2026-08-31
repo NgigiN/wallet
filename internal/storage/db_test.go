@@ -40,3 +40,23 @@ func TestSaveAndReadDirectionSource(t *testing.T) {
 		t.Errorf("got direction=%q source=%q, want in/airtel", all[0].Direction, all[0].Source)
 	}
 }
+
+func TestCreateTransactionIdempotent(t *testing.T) {
+	db := newTestDB(t)
+	mk := func() *Transaction {
+		return &Transaction{TransactionID: "DUP001", Amount: 50, Recipient: "Shop",
+			DateTime: time.Now(), Direction: "out", Source: "mpesa", Category: "food"}
+	}
+	created, err := db.CreateTransaction(mk())
+	if err != nil || !created {
+		t.Fatalf("first create: created=%v err=%v, want true,nil", created, err)
+	}
+	created, err = db.CreateTransaction(mk())
+	if err != nil || created {
+		t.Fatalf("duplicate create: created=%v err=%v, want false,nil", created, err)
+	}
+	all, _ := db.GetAllTransactions()
+	if len(all) != 1 {
+		t.Errorf("got %d rows, want 1", len(all))
+	}
+}

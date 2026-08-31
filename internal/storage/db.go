@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -29,6 +30,19 @@ func (d *Database) SaveTransaction(tx *Transaction) error {
 		return fmt.Errorf("failed to save transaction: %w", err)
 	}
 	return nil
+}
+
+// CreateTransaction inserts tx. It reports false with a nil error when a row
+// with the same TransactionID already exists, so API retries are idempotent.
+func (d *Database) CreateTransaction(tx *Transaction) (bool, error) {
+	err := d.db.Create(tx).Error
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, gorm.ErrDuplicatedKey) || strings.Contains(err.Error(), "UNIQUE constraint failed") {
+		return false, nil
+	}
+	return false, fmt.Errorf("failed to create transaction: %w", err)
 }
 
 func (d *Database) GetTransactionsByCategory(category string) ([]Transaction, error) {
