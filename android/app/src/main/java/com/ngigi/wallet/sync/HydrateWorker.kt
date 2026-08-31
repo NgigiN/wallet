@@ -8,18 +8,22 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import androidx.work.workDataOf
 import com.ngigi.wallet.data.AppDb
 import com.ngigi.wallet.data.TransactionDao
 import com.ngigi.wallet.settings.Prefs
 import java.io.IOException
 
 object Hydrate {
+    const val WORK_NAME = "hydrate"
+    const val KEY_INSERTED = "inserted"
+
     fun request(context: Context) {
         val work = OneTimeWorkRequestBuilder<HydrateWorker>()
             .setConstraints(Constraints(requiredNetworkType = NetworkType.CONNECTED))
             .build()
         WorkManager.getInstance(context)
-            .enqueueUniqueWork("hydrate", ExistingWorkPolicy.KEEP, work)
+            .enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.KEEP, work)
     }
 
     /** Pulls the full server history; inserts unseen rows as SYNCED. Returns inserted count. */
@@ -35,12 +39,17 @@ object Hydrate {
 class HydrateWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val prefs = Prefs(applicationContext)
-        if (!prefs.isConfigured) return Result.success()
+        if (!prefs.isConfigured) return Result.failure()
         return try {
-            Hydrate.pull(AppDb.get(applicationContext).dao(), ApiClient(prefs.baseUrl!!, prefs.apiToken!!))
-            Result.success()
+            val inserted = Hydrate.pull(
+                AppDb.get(applicationContext).dao(),
+                ApiClient(prefs.baseUrl!!, prefs.apiToken!!)
+            )
+            Result.success(workDataOf(Hydrate.KEY_INSERTED to inserted))
         } catch (e: IOException) {
-            Result.retry()
+            // Retry twice on network trouble, then fail visibly so Settings can
+            // show an error instead of spinning forever.
+            if (runAttemptCount >= 2) Result.failure() else Result.retry()
         }
     }
 }

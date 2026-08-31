@@ -3,8 +3,13 @@ package com.ngigi.wallet
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -31,6 +36,11 @@ class TagActivity : ComponentActivity() {
             LaunchedEffect(rowId) { row = dao.byId(rowId) }
             MaterialTheme {
                 Surface {
+                    if (row == null) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
+                        }
+                    }
                     row?.let { r ->
                         TagScreen(r) { amount, direction, counterparty, category, reason ->
                             lifecycleScope.launch(Dispatchers.IO) {

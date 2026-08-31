@@ -1,6 +1,7 @@
 package com.ngigi.wallet.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -21,6 +23,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.ngigi.wallet.data.NamedTotal
 import com.ngigi.wallet.data.Totals
@@ -64,15 +67,20 @@ fun StatsScreen(dao: TransactionDao) {
     var days by remember { mutableStateOf(emptyList<NamedTotal>()) }
     var biggest by remember { mutableStateOf(emptyList<TransactionEntity>()) }
     var people by remember { mutableStateOf(emptyList<NamedTotal>()) }
+    var loading by remember { mutableStateOf(true) }
 
     LaunchedEffect(period, ref) {
+        loading = true
         val (from, to) = range(period, ref, ZoneId.systemDefault())
         totals = dao.totals(from, to)
         cats = dao.categoryTotals(from, to)
         days = dao.topDays(from, to)
         biggest = dao.biggestExpenses(from, to)
         people = dao.topCounterparties(from, to)
+        loading = false
     }
+    val empty = !loading && totals.moneyIn == 0.0 && totals.moneyOut == 0.0 &&
+        cats.isEmpty() && biggest.isEmpty()
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -89,15 +97,38 @@ fun StatsScreen(dao: TransactionDao) {
             Text(label(period, ref), style = MaterialTheme.typography.titleMedium)
             TextButton({ ref = step(period, ref, 1) }) { Text("▶") }
         }
-        Row(horizontalArrangement = Arrangement.SpaceEvenly, modifier = Modifier.fillMaxWidth()) {
-            StatCell("In", totals.moneyIn)
-            StatCell("Out", totals.moneyOut)
-            StatCell("Net", totals.moneyIn - totals.moneyOut)
+        when {
+            loading -> Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+
+            empty -> Column(
+                Modifier.fillMaxWidth().padding(vertical = 48.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text("No transactions in this period", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Tag messages from the Inbox, or pull your history with " +
+                        "\"Sync history from server\" in Settings.",
+                    style = MaterialTheme.typography.bodySmall,
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            else -> {
+                Row(horizontalArrangement = Arrangement.SpaceEvenly, modifier = Modifier.fillMaxWidth()) {
+                    StatCell("In", totals.moneyIn)
+                    StatCell("Out", totals.moneyOut)
+                    StatCell("Net", totals.moneyIn - totals.moneyOut)
+                }
+                Section("By category", cats.map { it.name to it.total })
+                Section("Top spending days", days.map { it.name to it.total })
+                Section("Biggest expenses", biggest.map { "${it.counterparty} (${it.category ?: "?"})" to it.amount })
+                Section("Top counterparties", people.map { it.name to it.total })
+            }
         }
-        Section("By category", cats.map { it.name to it.total })
-        Section("Top spending days", days.map { it.name to it.total })
-        Section("Biggest expenses", biggest.map { "${it.counterparty} (${it.category ?: "?"})" to it.amount })
-        Section("Top counterparties", people.map { it.name to it.total })
     }
 }
 
