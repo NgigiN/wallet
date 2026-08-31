@@ -75,6 +75,38 @@ func (s *Server) handlePost(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]bool{"created": created})
 }
 
+func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.db.GetAllTransactions()
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "storage error")
+		return
+	}
+	out := make([]TransactionJSON, 0, len(rows))
+	for _, tx := range rows {
+		direction, source := tx.Direction, tx.Source
+		if direction == "" {
+			direction = "out"
+		}
+		if source == "" {
+			source = "mpesa"
+		}
+		out = append(out, TransactionJSON{
+			TransactionID: tx.TransactionID,
+			Amount:        tx.Amount,
+			Direction:     direction,
+			Source:        source,
+			Counterparty:  tx.Recipient,
+			DateTime:      tx.DateTime,
+			Balance:       tx.Balance,
+			Cost:          tx.Cost,
+			Category:      tx.Category,
+			Reason:        tx.Reason,
+		})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(out)
+}
+
 func writeJSONError(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)

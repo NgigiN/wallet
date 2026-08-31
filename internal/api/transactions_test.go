@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/NgigiN/wallet/internal/storage"
 )
 
 func postTx(t *testing.T, srv *Server, body string) *httptest.ResponseRecorder {
@@ -65,6 +67,39 @@ func TestPostRejectsBadInput(t *testing.T) {
 	for name, body := range cases {
 		if rec := postTx(t, srv, body); rec.Code != http.StatusBadRequest {
 			t.Errorf("%s: status = %d, want 400", name, rec.Code)
+		}
+	}
+}
+
+func TestGetReturnsAllWithLegacyDefaults(t *testing.T) {
+	srv := newTestServer(t)
+	// modern row
+	if rec := postTx(t, srv, validTxJSON(t)); rec.Code != http.StatusCreated {
+		t.Fatalf("seed: %d", rec.Code)
+	}
+	// legacy row: no direction/source (as written by the Discord bot)
+	srv.db.SaveTransaction(&storage.Transaction{
+		TransactionID: "LEGACY1", Amount: 100, Recipient: "Old Shop",
+		DateTime: time.Now(), Category: "food",
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/transactions", nil)
+	req.Header.Set("Authorization", "Bearer testtoken")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var got []TransactionJSON
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d rows, want 2", len(got))
+	}
+	for _, tx := range got {
+		if tx.TransactionID == "LEGACY1" && (tx.Direction != "out" || tx.Source != "mpesa") {
+			t.Errorf("legacy row defaults wrong: %+v", tx)
 		}
 	}
 }

@@ -63,6 +63,8 @@ func (s *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
 		s.handlePost(w, r)
+	case http.MethodGet:
+		s.handleGet(w, r)
 	default:
 		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
 	}
