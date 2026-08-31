@@ -41,6 +41,9 @@ fun SettingsScreen(prefs: Prefs, onSaved: () -> Unit, onHydrate: () -> Unit) {
     var token by remember { mutableStateOf(prefs.apiToken ?: "") }
     var showToken by remember { mutableStateOf(false) }
     var savedMsg by remember { mutableStateOf<String?>(null) }
+    // Only show sync results for a sync the user started from this screen —
+    // never a stale verdict from a previous session.
+    var attempted by remember { mutableStateOf(false) }
 
     val ctx = LocalContext.current
     val hydrateInfos by WorkManager.getInstance(ctx)
@@ -63,6 +66,7 @@ fun SettingsScreen(prefs: Prefs, onSaved: () -> Unit, onHydrate: () -> Unit) {
             },
         )
         Button(onClick = {
+            if (!url.startsWith("http://") && !url.startsWith("https://")) url = "https://$url"
             prefs.baseUrl = url; prefs.apiToken = token
             savedMsg = "Saved"; onSaved()
         }, enabled = url.isNotBlank() && token.isNotBlank()) { Text("Save") }
@@ -70,7 +74,7 @@ fun SettingsScreen(prefs: Prefs, onSaved: () -> Unit, onHydrate: () -> Unit) {
 
         HorizontalDivider()
 
-        Button(onClick = onHydrate, enabled = prefs.isConfigured && !syncing) {
+        Button(onClick = { attempted = true; onHydrate() }, enabled = prefs.isConfigured && !syncing) {
             if (syncing) {
                 CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                 Spacer(Modifier.width(8.dp))
@@ -79,7 +83,7 @@ fun SettingsScreen(prefs: Prefs, onSaved: () -> Unit, onHydrate: () -> Unit) {
                 Text("Sync history from server")
             }
         }
-        when (hydrate?.state) {
+        if (attempted) when (hydrate?.state) {
             WorkInfo.State.SUCCEEDED -> {
                 val n = hydrate.outputData.getInt(Hydrate.KEY_INSERTED, 0)
                 Text(
@@ -89,7 +93,8 @@ fun SettingsScreen(prefs: Prefs, onSaved: () -> Unit, onHydrate: () -> Unit) {
                 )
             }
             WorkInfo.State.FAILED -> Text(
-                "Couldn't reach the server — check the URL and token, then try again.",
+                hydrate.outputData.getString(Hydrate.KEY_ERROR)
+                    ?: "Sync failed — check the URL and token, then try again.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )

@@ -32,6 +32,9 @@ data class ApiTransaction(
 
 enum class PostResult { CREATED, DUPLICATE, CLIENT_ERROR, SERVER_ERROR }
 
+/** Non-2xx response where a response did arrive — distinguishes auth/URL mistakes from network failures. */
+class HttpException(val code: Int) : IOException("HTTP $code")
+
 object Wire {
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -89,7 +92,7 @@ class ApiClient(
             .get()
             .build()
         client.newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) throw IOException("GET /api/transactions returned ${resp.code}")
+            if (!resp.isSuccessful) throw HttpException(resp.code)
             return Wire.decodeList(resp.body!!.string())
         }
     }

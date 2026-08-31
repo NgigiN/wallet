@@ -55,6 +55,17 @@ class ApiClientTest {
     }
 
     @Test
+    fun getAllThrowsTypedHttpExceptionOn401() {
+        server.enqueue(MockResponse().setResponseCode(401).setBody("""{"error":"unauthorized"}"""))
+        try {
+            client.getAll()
+            org.junit.Assert.fail("expected HttpException")
+        } catch (e: HttpException) {
+            assertEquals(401, e.code)
+        }
+    }
+
+    @Test
     fun getAllParsesArrayAndRoundTripsToEntity() {
         server.enqueue(MockResponse().setResponseCode(200).setBody(
             """[{"transaction_id":"L1","amount":100.0,"direction":"out","source":"mpesa",
