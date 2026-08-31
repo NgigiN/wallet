@@ -22,8 +22,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.ngigi.wallet.data.AppDb
 import com.ngigi.wallet.notify.AndroidNotifier
+import com.ngigi.wallet.settings.Prefs
+import com.ngigi.wallet.sync.Hydrate
 import com.ngigi.wallet.sync.Sync
 import com.ngigi.wallet.ui.InboxScreen
+import com.ngigi.wallet.ui.SettingsScreen
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -50,7 +53,11 @@ class MainActivity : ComponentActivity() {
                                 startActivity(Intent(this, TagActivity::class.java).putExtra("row_id", rowId))
                             }
                             1 -> Text("Stats — coming soon")
-                            else -> Text("Settings — coming soon")
+                            else -> SettingsScreen(
+                                Prefs(this),
+                                onSaved = { Sync.requestSync(this) },
+                                onHydrate = { Hydrate.request(this) },
+                            )
                         }
                     }
                 }
