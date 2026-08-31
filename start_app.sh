@@ -3,7 +3,8 @@
 APP_NAME="financial-tracker"
 CONTAINER_NAME="${APP_NAME}-bot"
 IMAGE_TAG="wallet-irs:latest"
-PORT="7070" # Port for the health check endpoint
+# Loopback-only: nginx terminates TLS and proxies to this port.
+PORT="127.0.0.1:8080"
 
 # Change to the application directory
 cd /home/deploy/opt/wallet
@@ -27,8 +28,20 @@ if [ ! -f .env ]; then
     cat > .env << EOF
 DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
 DISCORD_CHANNEL_ID=${DISCORD_CHANNEL_ID}
+API_TOKEN=${API_TOKEN}
+DB_PATH=data/transaction.db
 EOF
 fi
+
+# Ensure newer required vars exist in a pre-existing .env
+if ! grep -q '^API_TOKEN=' .env; then
+    if [ -z "${API_TOKEN}" ]; then
+        echo "ERROR: API_TOKEN is not in .env and not provided in the environment" >&2
+        exit 1
+    fi
+    echo "API_TOKEN=${API_TOKEN}" >> .env
+fi
+grep -q '^DB_PATH=' .env || echo "DB_PATH=data/transaction.db" >> .env
 
 docker run -d \
   --name ${CONTAINER_NAME} \

@@ -264,6 +264,7 @@ The project includes automated Docker deployment via GitHub Actions:
    - `SERVER_PORT`: SSH port (usually 22)
    - `DISCORD_BOT_TOKEN`: Your Discord bot token
    - `DISCORD_CHANNEL_ID`: Your Discord channel ID
+   - `API_TOKEN`: Bearer token for the transactions API (generate with `openssl rand -hex 32`)
 
 2. **Deployment process**:
    - Push to `main` branch triggers deployment
@@ -413,6 +414,8 @@ docker-compose logs -f
 |----------|-------------|----------|
 | `DISCORD_BOT_TOKEN` | Discord bot token | Yes |
 | `DISCORD_CHANNEL_ID` | Target channel ID | Yes |
+| `API_TOKEN` | Bearer token for the HTTP transactions API | Yes |
+| `DB_PATH` | SQLite file path (default `transaction.db`; use `data/transaction.db` in Docker so it lives on the mounted volume) | No |
 
 ### Discord Bot Setup
 

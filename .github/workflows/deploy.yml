@@ -38,12 +38,14 @@ jobs:
       env:
         DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
         DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
+        API_TOKEN: ${{ secrets.API_TOKEN }}
       uses: appleboy/ssh-action@v1.0.3
       with:
         host: ${{ secrets.SERVER_HOST }}
         username: ${{ secrets.SERVER_USER }}
         key: ${{ secrets.SERVER_SSH_KEY }}
         port: ${{ secrets.SERVER_PORT }}
+        envs: DISCORD_BOT_TOKEN,DISCORD_CHANNEL_ID,API_TOKEN
         script: |
           cd /home/deploy/opt/wallet
           git pull origin main
@@ -51,7 +53,7 @@ jobs:
           chmod +x start_app.sh
 
           # Pass the secrets to the script
-          DISCORD_BOT_TOKEN="${DISCORD_BOT_TOKEN}" DISCORD_CHANNEL_ID="${DISCORD_CHANNEL_ID}" ./start_app.sh
+          DISCORD_BOT_TOKEN="${DISCORD_BOT_TOKEN}" DISCORD_CHANNEL_ID="${DISCORD_CHANNEL_ID}" API_TOKEN="${API_TOKEN}" ./start_app.sh
 
     - name: Health Check
       run: sleep 10
