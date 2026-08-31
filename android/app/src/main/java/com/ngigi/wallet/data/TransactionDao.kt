@@ -7,6 +7,8 @@ import androidx.room.Query
 import kotlinx.coroutines.flow.Flow
 
 data class CategoryCount(val category: String, val n: Int)
+data class Totals(val moneyIn: Double, val moneyOut: Double)
+data class NamedTotal(val name: String, val total: Double)
 
 @Dao
 interface TransactionDao {
@@ -48,4 +50,33 @@ interface TransactionDao {
               WHERE category IS NOT NULL AND category != '${Categories.TRANSFER}'
               GROUP BY category ORDER BY n DESC LIMIT 2""")
     suspend fun topCategories(): List<CategoryCount>
+
+    @Query("""SELECT
+                COALESCE(SUM(CASE WHEN direction = 'in' THEN amount END), 0) AS moneyIn,
+                COALESCE(SUM(CASE WHEN direction = 'out' THEN amount + cost END), 0) AS moneyOut
+              FROM transactions
+              WHERE date_time BETWEEN :from AND :to AND status != '${Status.PARSE_FAILED}'""")
+    suspend fun totals(from: Long, to: Long): Totals
+
+    @Query("""SELECT category AS name, SUM(amount + cost) AS total FROM transactions
+              WHERE direction = 'out' AND category IS NOT NULL
+                AND date_time BETWEEN :from AND :to AND status != '${Status.PARSE_FAILED}'
+              GROUP BY category ORDER BY total DESC""")
+    suspend fun categoryTotals(from: Long, to: Long): List<NamedTotal>
+
+    @Query("""SELECT strftime('%Y-%m-%d', date_time / 1000, 'unixepoch', 'localtime') AS name,
+                     SUM(amount + cost) AS total FROM transactions
+              WHERE direction = 'out' AND date_time BETWEEN :from AND :to AND status != '${Status.PARSE_FAILED}'
+              GROUP BY name ORDER BY total DESC LIMIT 5""")
+    suspend fun topDays(from: Long, to: Long): List<NamedTotal>
+
+    @Query("""SELECT * FROM transactions
+              WHERE direction = 'out' AND date_time BETWEEN :from AND :to AND status != '${Status.PARSE_FAILED}'
+              ORDER BY amount DESC LIMIT 5""")
+    suspend fun biggestExpenses(from: Long, to: Long): List<TransactionEntity>
+
+    @Query("""SELECT counterparty AS name, SUM(amount) AS total FROM transactions
+              WHERE direction = 'out' AND date_time BETWEEN :from AND :to AND status != '${Status.PARSE_FAILED}'
+              GROUP BY counterparty ORDER BY total DESC LIMIT 5""")
+    suspend fun topCounterparties(from: Long, to: Long): List<NamedTotal>
 }

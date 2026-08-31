@@ -27,6 +27,7 @@ import com.ngigi.wallet.sync.Hydrate
 import com.ngigi.wallet.sync.Sync
 import com.ngigi.wallet.ui.InboxScreen
 import com.ngigi.wallet.ui.SettingsScreen
+import com.ngigi.wallet.ui.StatsScreen
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -52,7 +53,7 @@ class MainActivity : ComponentActivity() {
                             0 -> InboxScreen(dao) { rowId ->
                                 startActivity(Intent(this, TagActivity::class.java).putExtra("row_id", rowId))
                             }
-                            1 -> Text("Stats — coming soon")
+                            1 -> StatsScreen(dao)
                             else -> SettingsScreen(
                                 Prefs(this),
                                 onSaved = { Sync.requestSync(this) },
