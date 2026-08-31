@@ -266,6 +266,10 @@ docker compose.override.yml
 # Local development tools
 .local/
 
-DEPLOYMENT.md
+docs/
+
+android/local.properties
+android/.gradle/
+android/.kotlin/
 
 financial-tracker
