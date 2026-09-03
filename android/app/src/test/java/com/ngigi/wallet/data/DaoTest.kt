@@ -76,6 +76,16 @@ class DaoTest {
     }
 
     @Test
+    fun recentActivityShowsTaggedAndSyncedNewestFirst() = runBlocking {
+        dao.insert(entity("U1"))
+        dao.insert(entity("P1", status = Status.PARSE_FAILED))
+        dao.insert(entity("T1", status = Status.TAGGED, category = "food").copy(dateTime = 2000L))
+        dao.insert(entity("S1", status = Status.SYNCED, category = "travel").copy(dateTime = 3000L))
+        assertEquals(listOf("S1", "T1"), dao.recentActivity(10).first().map { it.txnId })
+        assertEquals(listOf("S1"), dao.recentActivity(1).first().map { it.txnId })
+    }
+
+    @Test
     fun topCategoriesExcludesTransferAndOrdersByCount() = runBlocking {
         dao.insert(entity("A", status = Status.SYNCED, category = "food"))
         dao.insert(entity("B", status = Status.SYNCED, category = "food"))

@@ -15,13 +15,15 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 object Sync {
+    const val WORK_NAME = "sync"
+
     fun requestSync(context: Context) {
         val work = OneTimeWorkRequestBuilder<SyncWorker>()
             .setConstraints(Constraints(requiredNetworkType = NetworkType.CONNECTED))
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()
         WorkManager.getInstance(context)
-            .enqueueUniqueWork("sync", ExistingWorkPolicy.APPEND_OR_REPLACE, work)
+            .enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, work)
     }
 
     fun schedulePeriodic(context: Context) {

@@ -46,6 +46,10 @@ interface TransactionDao {
     @Query("SELECT COUNT(*) FROM transactions")
     suspend fun count(): Int
 
+    @Query("""SELECT * FROM transactions WHERE status IN ('${Status.TAGGED}', '${Status.SYNCED}')
+              ORDER BY date_time DESC LIMIT :limit""")
+    fun recentActivity(limit: Int): Flow<List<TransactionEntity>>
+
     @Query("""SELECT category, COUNT(*) AS n FROM transactions
               WHERE category IS NOT NULL AND category != '${Categories.TRANSFER}'
               GROUP BY category ORDER BY n DESC LIMIT 2""")

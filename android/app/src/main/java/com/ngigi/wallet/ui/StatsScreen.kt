@@ -1,38 +1,55 @@
 package com.ngigi.wallet.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ChevronLeft
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ngigi.wallet.data.NamedTotal
 import com.ngigi.wallet.data.Totals
 import com.ngigi.wallet.data.TransactionDao
 import com.ngigi.wallet.data.TransactionEntity
+import com.ngigi.wallet.ui.theme.LocalWalletPalette
+import com.ngigi.wallet.ui.theme.categoryEmoji
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 enum class Period { WEEK, MONTH, YEAR }
 
@@ -47,8 +64,8 @@ private fun range(period: Period, ref: LocalDate, zone: ZoneId): Pair<Long, Long
 }
 
 private fun label(period: Period, ref: LocalDate): String = when (period) {
-    Period.WEEK -> "Week of " + ref.with(DayOfWeek.MONDAY).format(DateTimeFormatter.ofPattern("d MMM uuuu"))
-    Period.MONTH -> ref.format(DateTimeFormatter.ofPattern("MMMM uuuu"))
+    Period.WEEK -> "Week of " + ref.with(DayOfWeek.MONDAY).format(DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH))
+    Period.MONTH -> ref.format(DateTimeFormatter.ofPattern("MMMM uuuu", Locale.ENGLISH))
     Period.YEAR -> ref.year.toString()
 }
 
@@ -58,8 +75,9 @@ private fun step(period: Period, ref: LocalDate, dir: Long): LocalDate = when (p
     Period.YEAR -> ref.plusYears(dir)
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun StatsScreen(dao: TransactionDao) {
+fun StatsScreen(dao: TransactionDao, showMessage: (String) -> Unit) {
     var period by remember { mutableStateOf(Period.MONTH) }
     var ref by remember { mutableStateOf(LocalDate.now()) }
     var totals by remember { mutableStateOf(Totals(0.0, 0.0)) }
@@ -68,8 +86,16 @@ fun StatsScreen(dao: TransactionDao) {
     var biggest by remember { mutableStateOf(emptyList<TransactionEntity>()) }
     var people by remember { mutableStateOf(emptyList<NamedTotal>()) }
     var loading by remember { mutableStateOf(true) }
+    var refreshTick by remember { mutableIntStateOf(0) }
+    val palette = LocalWalletPalette.current
+    val now = System.currentTimeMillis()
 
-    LaunchedEffect(period, ref) {
+    val (refreshing, refresh) = rememberServerRefresh { msg ->
+        refreshTick++
+        showMessage(msg)
+    }
+
+    LaunchedEffect(period, ref, refreshTick) {
         loading = true
         val (from, to) = range(period, ref, ZoneId.systemDefault())
         totals = dao.totals(from, to)
@@ -81,75 +107,146 @@ fun StatsScreen(dao: TransactionDao) {
     }
     val empty = !loading && totals.moneyIn == 0.0 && totals.moneyOut == 0.0 &&
         cats.isEmpty() && biggest.isEmpty()
+    val net = totals.moneyIn - totals.moneyOut
 
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        TabRow(selectedTabIndex = period.ordinal) {
-            Period.entries.forEach { p ->
-                Tab(selected = period == p, onClick = { period = p; ref = LocalDate.now() },
-                    text = { Text(p.name.lowercase().replaceFirstChar { it.uppercase() }) })
-            }
-        }
-        Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-            TextButton({ ref = step(period, ref, -1) }) { Text("◀") }
-            Text(label(period, ref), style = MaterialTheme.typography.titleMedium)
-            TextButton({ ref = step(period, ref, 1) }) { Text("▶") }
-        }
-        when {
-            loading -> Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
-
-            empty -> Column(
-                Modifier.fillMaxWidth().padding(vertical = 48.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text("No transactions in this period", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "Tag messages from the Inbox, or pull your history with " +
-                        "\"Sync history from server\" in Settings.",
-                    style = MaterialTheme.typography.bodySmall,
-                    textAlign = TextAlign.Center,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            else -> {
-                Row(horizontalArrangement = Arrangement.SpaceEvenly, modifier = Modifier.fillMaxWidth()) {
-                    StatCell("In", totals.moneyIn)
-                    StatCell("Out", totals.moneyOut)
-                    StatCell("Net", totals.moneyIn - totals.moneyOut)
+    Column(Modifier.fillMaxSize()) {
+        Canopy {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        label(period, ref),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = palette.onHeroDim,
+                    )
+                    Text(
+                        Format.kes(net),
+                        style = MaterialTheme.typography.displaySmall,
+                        color = if (net >= 0) palette.onHero else palette.onHeroOut,
+                    )
+                    Text(
+                        "net " + (if (net >= 0) "saved" else "spent"),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = palette.onHeroDim,
+                    )
                 }
-                Section("By category", cats.map { it.name to it.total })
-                Section("Top spending days", days.map { it.name to it.total })
-                Section("Biggest expenses", biggest.map { "${it.counterparty} (${it.category ?: "?"})" to it.amount })
-                Section("Top counterparties", people.map { it.name to it.total })
+                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    HeroStat("in", Format.kes(totals.moneyIn), palette.onHeroIn)
+                    HeroStat("out", Format.kes(totals.moneyOut), palette.onHeroOut)
+                }
+            }
+        }
+
+        PullToRefreshBox(isRefreshing = refreshing, onRefresh = refresh, modifier = Modifier.weight(1f)) {
+            Column(
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    SingleChoiceSegmentedButtonRow(Modifier.weight(1f)) {
+                        Period.entries.forEachIndexed { i, p ->
+                            SegmentedButton(
+                                selected = period == p,
+                                onClick = { period = p; ref = LocalDate.now() },
+                                shape = SegmentedButtonDefaults.itemShape(index = i, count = Period.entries.size),
+                            ) {
+                                Text(p.name.lowercase().replaceFirstChar { it.uppercase() })
+                            }
+                        }
+                    }
+                    IconButton({ ref = step(period, ref, -1) }) {
+                        Icon(Icons.Rounded.ChevronLeft, contentDescription = "Earlier ${period.name.lowercase()}")
+                    }
+                    IconButton({ ref = step(period, ref, 1) }) {
+                        Icon(Icons.Rounded.ChevronRight, contentDescription = "Later ${period.name.lowercase()}")
+                    }
+                }
+
+                when {
+                    loading -> Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+
+                    empty -> EmptyState(
+                        emoji = "🍃",
+                        title = "Nothing here yet",
+                        body = "No transactions in this period.",
+                        hint = "Tag messages from the Inbox, or pull down to sync your history from the server.",
+                    )
+
+                    else -> {
+                        if (cats.isNotEmpty()) {
+                            SectionCard("Where it went") {
+                                val totalOut = cats.sumOf { it.total }.coerceAtLeast(1.0)
+                                cats.forEach { c ->
+                                    CategoryBarRow(
+                                        emoji = categoryEmoji(c.name),
+                                        name = c.name,
+                                        amount = c.total,
+                                        fraction = (c.total / totalOut).toFloat(),
+                                        color = palette.category(c.name),
+                                    )
+                                }
+                            }
+                        }
+                        if (days.isNotEmpty()) {
+                            SectionCard("Top spending days") {
+                                days.forEach { d -> PlainStatRow(Format.dayLabel(d.name), Format.kes(d.total)) }
+                            }
+                        }
+                        if (biggest.isNotEmpty()) {
+                            SectionCard("Biggest expenses") {
+                                biggest.forEach { TransactionRow(it, now) }
+                            }
+                        }
+                        if (people.isNotEmpty()) {
+                            SectionCard("Top counterparties") {
+                                people.forEach { p -> PlainStatRow(p.name, Format.kes(p.total)) }
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun StatCell(label: String, value: Double) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(label, style = MaterialTheme.typography.labelMedium)
-        Text("Ksh %,.0f".format(value), style = MaterialTheme.typography.titleMedium)
+private fun HeroStat(label: String, value: String, tint: Color) {
+    Column(horizontalAlignment = Alignment.End) {
+        Text(value, style = MaterialTheme.typography.titleSmall, color = tint)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = LocalWalletPalette.current.onHeroDim)
     }
 }
 
 @Composable
-private fun Section(title: String, rows: List<Pair<String, Double>>) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(title, style = MaterialTheme.typography.titleMedium)
-        if (rows.isEmpty()) Text("No data", style = MaterialTheme.typography.bodySmall)
-        rows.forEach { (name, total) ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(name, Modifier.weight(1f), maxLines = 1)
-                Text("Ksh %,.0f".format(total))
-            }
+private fun PlainStatRow(name: String, value: String) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(name, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+        Text(value, style = MaterialTheme.typography.titleSmall)
+    }
+}
+
+@Composable
+private fun CategoryBarRow(emoji: String, name: String, amount: Double, fraction: Float, color: Color) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(emoji, Modifier.width(28.dp))
+            Text(name, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+            Text(Format.kes(amount), style = MaterialTheme.typography.titleSmall)
+        }
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(8.dp)
+                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(4.dp)),
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth(fraction.coerceIn(0.02f, 1f))
+                    .height(8.dp)
+                    .background(color, RoundedCornerShape(4.dp)),
+            )
         }
     }
 }
