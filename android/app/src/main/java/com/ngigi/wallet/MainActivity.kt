@@ -27,12 +27,16 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -63,6 +67,17 @@ class MainActivity : ComponentActivity() {
         setContent {
             WalletTheme {
                 var tab by rememberSaveable { mutableIntStateOf(0) }
+                // Shoulder-surfing guard: amounts start hidden on every open, and
+                // re-hide whenever the app leaves the foreground.
+                var hideAmounts by remember { mutableStateOf(true) }
+                val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+                DisposableEffect(lifecycleOwner) {
+                    val observer = LifecycleEventObserver { _, event ->
+                        if (event == Lifecycle.Event.ON_STOP) hideAmounts = true
+                    }
+                    lifecycleOwner.lifecycle.addObserver(observer)
+                    onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+                }
                 val snackbar = remember { SnackbarHostState() }
                 val scope = rememberCoroutineScope()
                 val showMessage: (String) -> Unit = { msg -> scope.launch { snackbar.showSnackbar(msg) } }
@@ -106,12 +121,20 @@ class MainActivity : ComponentActivity() {
                     // Only the bottom inset: each screen's canopy paints under the status bar itself.
                     androidx.compose.foundation.layout.Box(Modifier.padding(bottom = padding.calculateBottomPadding())) {
                         when (tab) {
-                            0 -> InboxScreen(dao, showMessage) { rowId ->
+                            0 -> InboxScreen(
+                                dao, showMessage,
+                                hidden = hideAmounts,
+                                onToggleHidden = { hideAmounts = !hideAmounts },
+                            ) { rowId ->
                                 startActivity(
                                     Intent(this@MainActivity, TagActivity::class.java).putExtra("row_id", rowId),
                                 )
                             }
-                            1 -> StatsScreen(dao, showMessage)
+                            1 -> StatsScreen(
+                                dao, showMessage,
+                                hidden = hideAmounts,
+                                onToggleHidden = { hideAmounts = !hideAmounts },
+                            )
                             else -> SettingsScreen(
                                 Prefs(this@MainActivity),
                                 showMessage = showMessage,

@@ -47,7 +47,13 @@ import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun InboxScreen(dao: TransactionDao, showMessage: (String) -> Unit, onOpen: (Long) -> Unit) {
+fun InboxScreen(
+    dao: TransactionDao,
+    showMessage: (String) -> Unit,
+    hidden: Boolean,
+    onToggleHidden: () -> Unit,
+    onOpen: (Long) -> Unit,
+) {
     // null = still loading from Room; emptyList = genuinely nothing to tag.
     val inbox by dao.inbox().collectAsStateWithLifecycle(initialValue = null as List<TransactionEntity>?)
     val recent by dao.recentActivity(30).collectAsStateWithLifecycle(initialValue = null as List<TransactionEntity>?)
@@ -65,17 +71,22 @@ fun InboxScreen(dao: TransactionDao, showMessage: (String) -> Unit, onOpen: (Lon
 
     Column(Modifier.fillMaxSize()) {
         Canopy {
-            Text("Wallet", style = MaterialTheme.typography.headlineMedium, color = palette.onHero)
-            Text(
-                LocalDate.now().format(DateTimeFormatter.ofPattern("MMMM uuuu", Locale.ENGLISH)),
-                style = MaterialTheme.typography.labelMedium,
-                color = palette.onHeroDim,
-            )
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                Column(Modifier.weight(1f)) {
+                    Text("Wallet", style = MaterialTheme.typography.headlineMedium, color = palette.onHero)
+                    Text(
+                        LocalDate.now().format(DateTimeFormatter.ofPattern("MMMM uuuu", Locale.ENGLISH)),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = palette.onHeroDim,
+                    )
+                }
+                HideAmountsButton(hidden, onToggleHidden)
+            }
             monthTotals?.let { t ->
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CanopyPill("↑ " + Format.kes(t.moneyIn) + " in", palette.onHeroIn)
-                    CanopyPill("↓ " + Format.kes(t.moneyOut) + " out", palette.onHeroOut)
+                    CanopyPill("↑ " + Format.kes(t.moneyIn, hidden) + " in", palette.onHeroIn)
+                    CanopyPill("↓ " + Format.kes(t.moneyOut, hidden) + " out", palette.onHeroOut)
                 }
             }
         }

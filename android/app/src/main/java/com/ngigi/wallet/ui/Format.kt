@@ -17,6 +17,9 @@ object Format {
         return (if (amount < 0) "−" else "") + "Ksh " + body
     }
 
+    /** Shoulder-surfing mode: a fixed-width mask that leaks neither digits, sign, nor magnitude. */
+    fun kes(amount: Double, hidden: Boolean): String = if (hidden) "Ksh ••••" else kes(amount)
+
     private val weekday = DateTimeFormatter.ofPattern("EEE", Locale.ENGLISH)
     private val dayMonth = DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH)
     private val weekdayDayMonth = DateTimeFormatter.ofPattern("EEE d MMM", Locale.ENGLISH)

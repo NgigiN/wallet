@@ -77,7 +77,12 @@ private fun step(period: Period, ref: LocalDate, dir: Long): LocalDate = when (p
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun StatsScreen(dao: TransactionDao, showMessage: (String) -> Unit) {
+fun StatsScreen(
+    dao: TransactionDao,
+    showMessage: (String) -> Unit,
+    hidden: Boolean,
+    onToggleHidden: () -> Unit,
+) {
     var period by remember { mutableStateOf(Period.MONTH) }
     var ref by remember { mutableStateOf(LocalDate.now()) }
     var totals by remember { mutableStateOf(Totals(0.0, 0.0)) }
@@ -119,20 +124,21 @@ fun StatsScreen(dao: TransactionDao, showMessage: (String) -> Unit) {
                         color = palette.onHeroDim,
                     )
                     Text(
-                        Format.kes(net),
+                        Format.kes(net, hidden),
                         style = MaterialTheme.typography.displaySmall,
-                        color = if (net >= 0) palette.onHero else palette.onHeroOut,
+                        color = if (net >= 0 || hidden) palette.onHero else palette.onHeroOut,
                     )
                     Text(
-                        "net " + (if (net >= 0) "saved" else "spent"),
+                        if (hidden) "net" else "net " + (if (net >= 0) "saved" else "spent"),
                         style = MaterialTheme.typography.labelMedium,
                         color = palette.onHeroDim,
                     )
                 }
                 Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    HeroStat("in", Format.kes(totals.moneyIn), palette.onHeroIn)
-                    HeroStat("out", Format.kes(totals.moneyOut), palette.onHeroOut)
+                    HeroStat("in", Format.kes(totals.moneyIn, hidden), palette.onHeroIn)
+                    HeroStat("out", Format.kes(totals.moneyOut, hidden), palette.onHeroOut)
                 }
+                HideAmountsButton(hidden, onToggleHidden)
             }
         }
 

@@ -12,6 +12,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -42,6 +47,19 @@ import com.ngigi.wallet.ui.theme.categoryEmoji
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
+
+/** Canopy eye toggle for the shoulder-surfing guard: amounts start hidden, tap to reveal. */
+@Composable
+fun HideAmountsButton(hidden: Boolean, onToggle: () -> Unit) {
+    val palette = LocalWalletPalette.current
+    IconButton(onClick = onToggle) {
+        Icon(
+            if (hidden) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
+            contentDescription = if (hidden) "Show amounts" else "Hide amounts",
+            tint = palette.onHeroDim,
+        )
+    }
+}
 
 /** The deep-green header block that owns the status-bar area on every screen. */
 @Composable

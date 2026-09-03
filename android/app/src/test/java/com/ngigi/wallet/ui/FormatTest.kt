@@ -24,6 +24,14 @@ class FormatTest {
         assertEquals("−Ksh 500", Format.kes(-500.0))
     }
 
+    @Test
+    fun hiddenAmountsLeakNoDigitsSignOrMagnitude() {
+        assertEquals("Ksh ••••", Format.kes(2340.0, hidden = true))
+        assertEquals("Ksh ••••", Format.kes(-500.0, hidden = true))
+        assertEquals("Ksh ••••", Format.kes(1234567.89, hidden = true))
+        assertEquals("Ksh 2,340", Format.kes(2340.0, hidden = false))
+    }
+
     // Anchor: 2026-09-03T12:00:00Z, a Thursday.
     private val now = 1788436800000L
 
