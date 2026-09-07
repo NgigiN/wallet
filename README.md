@@ -373,38 +373,14 @@ For non-Docker environments:
    ./start_app.sh
    ```
 
-### Docker Compose (Optional)
+### A note on Docker Compose
 
-For easier container management, create `docker-compose.yml`:
-
-```yaml
-version: '3.8'
-
-services:
-  irs-bot:
-    build: .
-    container_name: financial-tracker-bot
-    restart: unless-stopped
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./data:/app/data
-    environment:
-      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
-      - DISCORD_CHANNEL_ID=${DISCORD_CHANNEL_ID}
-```
-
-Usage:
-```bash
-# Start with docker-compose
-docker-compose up -d
-
-# Stop with docker-compose
-docker-compose down
-
-# View logs
-docker-compose logs -f
-```
+Don't manage this service with Docker Compose. The production container is
+created by `start_app.sh` (plain `docker run`), so Compose never owns it:
+`docker compose down` won't stop it, and `docker compose up` fails with a
+container-name conflict against the real deployment. To restart or redeploy,
+use `./start_app.sh`; to just restart the running container,
+`docker restart financial-tracker-bot`.
 
 ## Configuration
 
