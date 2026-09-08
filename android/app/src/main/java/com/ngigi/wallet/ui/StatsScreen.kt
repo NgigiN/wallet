@@ -50,6 +50,13 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 
+internal fun comparisonPercent(current: Double, previous: Double): String {
+    if (previous <= 0.0) return "new"
+    val pct = Math.round((current - previous) / previous * 100).toInt()
+    val arrow = if (pct >= 0) "↑" else "↓"
+    return "$arrow${kotlin.math.abs(pct)}%"
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StatsScreen(
@@ -61,6 +68,7 @@ fun StatsScreen(
     var period by remember { mutableStateOf(Period.MONTH) }
     var ref by remember { mutableStateOf(LocalDate.now()) }
     var totals by remember { mutableStateOf(Totals(0.0, 0.0)) }
+    var prevTotals by remember { mutableStateOf(Totals(0.0, 0.0)) }
     var cats by remember { mutableStateOf(emptyList<NamedTotal>()) }
     var days by remember { mutableStateOf(emptyList<NamedTotal>()) }
     var biggest by remember { mutableStateOf(emptyList<TransactionEntity>()) }
@@ -86,6 +94,8 @@ fun StatsScreen(
         loading = true
         val (from, to) = range(period, ref, ZoneId.systemDefault())
         totals = dao.totals(from, to)
+        val (prevFrom, prevTo) = range(period, step(period, ref, -1), ZoneId.systemDefault())
+        prevTotals = dao.totals(prevFrom, prevTo)
         cats = dao.categoryTotals(from, to)
         days = dao.topDays(from, to)
         biggest = dao.biggestExpenses(from, to)
@@ -116,6 +126,14 @@ fun StatsScreen(
                         style = MaterialTheme.typography.labelMedium,
                         color = palette.onHeroDim,
                     )
+                    if (!hidden) {
+                        val cmp = comparisonPercent(totals.moneyOut, prevTotals.moneyOut)
+                        Text(
+                            if (cmp == "new") "new vs last ${period.name.lowercase()}" else "$cmp vs last ${period.name.lowercase()}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (cmp.startsWith("↑")) palette.onHeroOut else palette.onHeroIn,
+                        )
+                    }
                 }
                 Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     HeroStat("in", Format.kes(totals.moneyIn, hidden), palette.onHeroIn)
