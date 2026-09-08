@@ -108,4 +108,13 @@ class StatsDaoTest {
     fun categorySpendZeroWhenNoMatchingRows() = runBlocking {
         assertEquals(0.0, dao.categorySpend("food", ms(1, 0), ms(30, 23)), 0.001)
     }
+
+    @Test
+    fun dailyTotalsReturnsEveryDayNotJustTopFive() = runBlocking {
+        for (day in 1..6) {
+            dao.insert(row("D$day", 10.0 * day, "out", "food", "S", ms(day, 9)))
+        }
+        val daily = dao.dailyTotals(ms(1, 0), ms(30, 23))
+        assertEquals(6, daily.size)
+    }
 }

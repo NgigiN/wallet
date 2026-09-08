@@ -74,6 +74,12 @@ interface TransactionDao {
               GROUP BY name ORDER BY total DESC LIMIT 5""")
     suspend fun topDays(from: Long, to: Long): List<NamedTotal>
 
+    @Query("""SELECT strftime('%Y-%m-%d', date_time / 1000, 'unixepoch', 'localtime') AS name,
+                     SUM(amount + cost) AS total FROM transactions
+              WHERE direction = 'out' AND date_time BETWEEN :from AND :to AND status != '${Status.PARSE_FAILED}'
+              GROUP BY name""")
+    suspend fun dailyTotals(from: Long, to: Long): List<NamedTotal>
+
     @Query("""SELECT * FROM transactions
               WHERE direction = 'out' AND date_time BETWEEN :from AND :to AND status != '${Status.PARSE_FAILED}'
               ORDER BY amount DESC LIMIT 5""")
