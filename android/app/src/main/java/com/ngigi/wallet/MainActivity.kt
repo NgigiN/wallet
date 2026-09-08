@@ -137,6 +137,7 @@ class MainActivity : ComponentActivity() {
                             )
                             else -> SettingsScreen(
                                 Prefs(this@MainActivity),
+                                budgetDao = AppDb.get(this@MainActivity).budgetDao(),
                                 showMessage = showMessage,
                                 onSaved = { Sync.requestSync(this@MainActivity) },
                                 onHydrate = { Hydrate.request(this@MainActivity) },

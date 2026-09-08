@@ -27,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -37,11 +38,21 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import com.ngigi.wallet.data.BudgetDao
+import com.ngigi.wallet.data.BudgetEntity
+import com.ngigi.wallet.data.Categories
 import com.ngigi.wallet.settings.Prefs
 import com.ngigi.wallet.sync.Hydrate
+import kotlinx.coroutines.launch
 
 @Composable
-fun SettingsScreen(prefs: Prefs, showMessage: (String) -> Unit, onSaved: () -> Unit, onHydrate: () -> Unit) {
+fun SettingsScreen(
+    prefs: Prefs,
+    budgetDao: BudgetDao,
+    showMessage: (String) -> Unit,
+    onSaved: () -> Unit,
+    onHydrate: () -> Unit,
+) {
     var url by remember { mutableStateOf(prefs.baseUrl ?: "") }
     var token by remember { mutableStateOf(prefs.apiToken ?: "") }
     var showToken by remember { mutableStateOf(false) }
@@ -155,6 +166,51 @@ fun SettingsScreen(prefs: Prefs, showMessage: (String) -> Unit, onSaved: () -> U
                         style = MaterialTheme.typography.bodySmall,
                     )
                     else -> {}
+                }
+            }
+
+            val budgetCategories = Categories.ALL.filterNot { it == "income" || it == Categories.TRANSFER }
+            val budgets by budgetDao.all().collectAsStateWithLifecycle(initialValue = emptyList())
+            val budgetByCategory = budgets.associateBy { it.category }
+            val budgetScope = rememberCoroutineScope()
+
+            SectionCard("Budgets") {
+                Text(
+                    "Set a monthly spend limit per category. You'll get a heads-up at 80% and 100%.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                budgetCategories.forEach { category ->
+                    var text by remember(category, budgetByCategory[category]?.monthlyLimit) {
+                        mutableStateOf(budgetByCategory[category]?.monthlyLimit?.let { "%.0f".format(it) } ?: "")
+                    }
+                    OutlinedTextField(
+                        value = text,
+                        onValueChange = { text = it },
+                        label = { Text(category.replaceFirstChar { c -> c.uppercase() }) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        shape = MaterialTheme.shapes.small,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        trailingIcon = {
+                            IconButton(onClick = {
+                                val amount = text.toDoubleOrNull() ?: 0.0
+                                budgetScope.launch {
+                                    budgetDao.upsert(
+                                        BudgetEntity(
+                                            category = category,
+                                            monthlyLimit = amount,
+                                            lastAlertLevel = budgetByCategory[category]?.lastAlertLevel ?: 0,
+                                            lastAlertMonth = budgetByCategory[category]?.lastAlertMonth,
+                                        ),
+                                    )
+                                    showMessage("Saved $category budget.")
+                                }
+                            }) {
+                                Icon(Icons.Rounded.CloudDownload, contentDescription = "Save budget")
+                            }
+                        },
+                    )
                 }
             }
 
