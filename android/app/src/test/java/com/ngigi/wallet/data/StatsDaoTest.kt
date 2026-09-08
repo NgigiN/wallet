@@ -80,4 +80,19 @@ class StatsDaoTest {
         assertEquals("Bob", cp[0].name)
         assertEquals(1100.0, cp[0].total, 0.001)
     }
+
+    @Test
+    fun earliestTransactionDateIgnoresParseFailedRows() = runBlocking {
+        dao.insert(row("A", 100.0, "out", "food", "Shop", ms(20, 9)))
+        dao.insert(row("B", 50.0, "out", "food", "Shop", ms(10, 9)))
+        dao.insert(
+            row("C", 10.0, "out", null, "Shop", ms(1, 9)).copy(status = Status.PARSE_FAILED),
+        )
+        assertEquals(ms(10, 9), dao.earliestTransactionDate())
+    }
+
+    @Test
+    fun earliestTransactionDateNullWhenEmpty() = runBlocking {
+        assertEquals(null, dao.earliestTransactionDate())
+    }
 }

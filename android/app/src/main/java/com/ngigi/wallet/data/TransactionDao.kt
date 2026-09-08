@@ -83,4 +83,7 @@ interface TransactionDao {
               WHERE direction = 'out' AND date_time BETWEEN :from AND :to AND status != '${Status.PARSE_FAILED}'
               GROUP BY counterparty ORDER BY total DESC LIMIT 5""")
     suspend fun topCounterparties(from: Long, to: Long): List<NamedTotal>
+
+    @Query("SELECT MIN(date_time) FROM transactions WHERE status != '${Status.PARSE_FAILED}'")
+    suspend fun earliestTransactionDate(): Long?
 }
