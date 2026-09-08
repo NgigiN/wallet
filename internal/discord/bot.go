@@ -102,6 +102,14 @@ func (b *Bot) handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
+	if fields := strings.Fields(content); len(fields) > 0 {
+		switch fields[0] {
+		case "!week", "!month", "!lastweek", "!lastmonth":
+			b.handlePeriodCommand(s, m, content)
+			return
+		}
+	}
+
 	// Check for batch processing (multiple transactions)
 	if b.isBatchMessage(content) {
 		b.handleBatchMessage(s, m, content)
@@ -190,6 +198,60 @@ func isValidCategory(category string) bool {
 		"investments": true,
 	}
 	return validCategories[strings.ToLower(category)]
+}
+
+func (b *Bot) handlePeriodCommand(s *discordgo.Session, m *discordgo.MessageCreate, content string) {
+	fields := strings.Fields(content)
+	cmd := fields[0]
+	args := fields[1:]
+	now := time.Now()
+
+	var from, to time.Time
+	var label string
+	var err error
+	switch cmd {
+	case "!week":
+		from, to, label, err = resolveWeek(args, now)
+	case "!month":
+		from, to, label, err = resolveMonth(args, now)
+	case "!lastweek":
+		from, to, label = resolveLastWeek(now)
+	case "!lastmonth":
+		from, to, label = resolveLastMonth(now)
+	}
+	if err != nil {
+		s.ChannelMessageSend(m.ChannelID, err.Error()+"\nUsage: !week [1-53], !month [name|1-12], !lastweek, !lastmonth")
+		return
+	}
+
+	// Previous period of the same kind, re-derived from its own boundaries
+	// (not a raw duration subtraction) so months of different lengths still
+	// land on the correct prior calendar month.
+	var prevFrom, prevTo time.Time
+	switch cmd {
+	case "!week", "!lastweek":
+		prevFrom, prevTo = weekRange(from.AddDate(0, 0, -7))
+	case "!month", "!lastmonth":
+		prevFrom, prevTo = monthRange(from.AddDate(0, -1, 0))
+	}
+
+	moneyIn, moneyOut, err := b.db.PeriodTotals(from, to)
+	if err != nil {
+		s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Failed to load %s: %v", label, err))
+		return
+	}
+	_, prevMoneyOut, err := b.db.PeriodTotals(prevFrom, prevTo)
+	if err != nil {
+		s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Failed to load the previous period for %s: %v", label, err))
+		return
+	}
+
+	cats, _ := b.db.CategoryTotals(from, to)
+	days, _ := b.db.TopDays(from, to, 5)
+	biggest, _ := b.db.BiggestExpenses(from, to, 5)
+	counterparties, _ := b.db.TopCounterparties(from, to, 5)
+
+	s.ChannelMessageSend(m.ChannelID, formatPeriodReview(label, moneyIn, moneyOut, prevMoneyOut, cats, days, counterparties, biggest))
 }
 
 func (b *Bot) handleSummaryCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
