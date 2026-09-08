@@ -29,3 +29,18 @@ func TestParseOutgoingVariants(t *testing.T) {
 		}
 	}
 }
+
+func TestParseUsesNairobiOffsetNotUTC(t *testing.T) {
+	msg := `TIH6CSP6KA Confirmed. Ksh40.00 sent to Co-operative Bank Money Transfer for account 1082111 on 17/9/25 at 6:59 PM New M-PESA balance is Ksh679.18. Transaction cost, Ksh0.00.`
+	p, err := ParseMPesaMessage(msg)
+	if err != nil {
+		t.Fatalf("expected parse ok, got err: %v", err)
+	}
+	_, offset := p.DateTime.Zone()
+	if offset != 3*60*60 {
+		t.Errorf("got offset %d seconds, want %d (Africa/Nairobi, no DST)", offset, 3*60*60)
+	}
+	if p.DateTime.Hour() != 18 || p.DateTime.Minute() != 59 {
+		t.Errorf("got %02d:%02d, want 18:59 (wall-clock time from the SMS, unchanged)", p.DateTime.Hour(), p.DateTime.Minute())
+	}
+}

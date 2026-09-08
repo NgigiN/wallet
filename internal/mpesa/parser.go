@@ -8,6 +8,10 @@ import (
 	"time"
 )
 
+// Kenya is UTC+3 year-round (no DST), so a fixed zone is exact and needs no
+// tzdata lookup.
+var nairobi = time.FixedZone("EAT", 3*60*60)
+
 type ParsedTransaction struct {
 	TransactionID string
 	Amount        float64
@@ -61,7 +65,7 @@ func ParseMPesaMessage(msg string) (*ParsedTransaction, error) {
 		timePart = matches[6]
 	}
 	dateTimeStr := fmt.Sprintf("%d-%02d-%02d %s", year, month, day, timePart)
-	dateTime, err := time.Parse("2006-01-02 3:04 PM", dateTimeStr)
+	dateTime, err := time.ParseInLocation("2006-01-02 3:04 PM", dateTimeStr, nairobi)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse date/time: %w", err)
 	}
