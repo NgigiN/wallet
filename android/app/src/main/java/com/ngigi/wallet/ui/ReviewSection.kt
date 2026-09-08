@@ -62,6 +62,13 @@ internal suspend fun categoryMovers(dao: TransactionDao, period: Period, ref: Lo
         .take(limit)
 }
 
+internal fun paceProjection(spentSoFar: Double, periodStart: Long, periodEnd: Long, now: Long): Double? {
+    if (now < periodStart || now >= periodEnd) return null
+    val elapsedFraction = (now - periodStart).toDouble() / (periodEnd - periodStart).toDouble()
+    if (elapsedFraction <= 0.0) return null
+    return spentSoFar / elapsedFraction
+}
+
 @Composable
 fun ReviewContent(dao: TransactionDao, period: Period, ref: LocalDate, zone: ZoneId, onRefChange: (LocalDate) -> Unit) {
     var series by remember { mutableStateOf<List<TrendPoint>>(emptyList()) }
@@ -69,6 +76,12 @@ fun ReviewContent(dao: TransactionDao, period: Period, ref: LocalDate, zone: Zon
     LaunchedEffect(period, ref) {
         series = trendSeries(dao, period, ref, count = 10, zone = zone)
         movers = categoryMovers(dao, period, ref, zone)
+    }
+    val pace = remember(period, ref, series) {
+        val (from, to) = range(period, ref, zone)
+        val now = System.currentTimeMillis()
+        val spentSoFar = series.lastOrNull { it.ref == ref }?.moneyOut
+        if (spentSoFar != null) paceProjection(spentSoFar, from, to, now) else null
     }
 
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -123,6 +136,14 @@ fun ReviewContent(dao: TransactionDao, period: Period, ref: LocalDate, zone: Zon
                             )
                         }
                     }
+                }
+            }
+            pace?.let {
+                SectionCard("Pace") {
+                    Text(
+                        "At this rate, ${Format.kes(it)} by the end of this ${period.name.lowercase()}",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
                 }
             }
         }

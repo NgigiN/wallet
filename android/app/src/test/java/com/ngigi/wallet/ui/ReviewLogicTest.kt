@@ -95,4 +95,26 @@ class ReviewLogicTest {
     fun categoryMoversEmptyWhenNoDataEitherPeriod() = runBlocking {
         assertEquals(emptyList<CategoryMover>(), categoryMovers(dao, Period.MONTH, LocalDate.of(2026, 9, 10), zone))
     }
+
+    @Test
+    fun paceProjectsLinearlyFromElapsedFraction() {
+        // 50% through the period, Ksh1000 spent so far -> Ksh2000 projected.
+        val projected = paceProjection(spentSoFar = 1000.0, periodStart = 0L, periodEnd = 1000L, now = 500L)
+        assertEquals(2000.0, projected!!, 0.001)
+    }
+
+    @Test
+    fun paceProjectionNullBeforePeriodStarts() {
+        assertEquals(null, paceProjection(1000.0, periodStart = 1000L, periodEnd = 2000L, now = 500L))
+    }
+
+    @Test
+    fun paceProjectionNullForACompletedPeriod() {
+        assertEquals(null, paceProjection(1000.0, periodStart = 0L, periodEnd = 1000L, now = 1500L))
+    }
+
+    @Test
+    fun paceProjectionNullAtTheVeryStartOfThePeriod() {
+        assertEquals(null, paceProjection(0.0, periodStart = 1000L, periodEnd = 2000L, now = 1000L))
+    }
 }
