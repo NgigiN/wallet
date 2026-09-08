@@ -3,6 +3,7 @@ package com.ngigi.wallet.ui
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.ngigi.wallet.data.AppDb
+import com.ngigi.wallet.data.NamedTotal
 import com.ngigi.wallet.data.Status
 import com.ngigi.wallet.data.TransactionDao
 import com.ngigi.wallet.data.TransactionEntity
@@ -116,5 +117,25 @@ class ReviewLogicTest {
     @Test
     fun paceProjectionNullAtTheVeryStartOfThePeriod() {
         assertEquals(null, paceProjection(0.0, periodStart = 1000L, periodEnd = 2000L, now = 1000L))
+    }
+
+    @Test
+    fun heatmapBucketsAllZeroWhenNoSpend() {
+        val daily = listOf(NamedTotal("2026-09-01", 0.0), NamedTotal("2026-09-02", 0.0))
+        assertEquals(mapOf("2026-09-01" to 0, "2026-09-02" to 0), heatmapBuckets(daily))
+    }
+
+    @Test
+    fun heatmapBucketsSpreadsAcrossQuartiles() {
+        val daily = (1..8).map { NamedTotal("2026-09-0$it", it * 100.0) }
+        val buckets = heatmapBuckets(daily)
+        assertEquals(1, buckets["2026-09-01"])
+        assertEquals(4, buckets["2026-09-08"])
+    }
+
+    @Test
+    fun heatmapBucketsSingleNonZeroDayGetsANonZeroBucket() {
+        val daily = listOf(NamedTotal("2026-09-01", 500.0))
+        assertEquals(true, heatmapBuckets(daily)["2026-09-01"]!! in 1..4)
     }
 }

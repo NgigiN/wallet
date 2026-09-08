@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -62,6 +63,18 @@ internal suspend fun categoryMovers(dao: TransactionDao, period: Period, ref: Lo
         .take(limit)
 }
 
+internal fun heatmapBuckets(daily: List<com.ngigi.wallet.data.NamedTotal>): Map<String, Int> {
+    val nonZero = daily.filter { it.total > 0.0 }.map { it.total }.sorted()
+    if (nonZero.isEmpty()) return daily.associate { it.name to 0 }
+    fun bucketFor(v: Double): Int {
+        if (v <= 0.0) return 0
+        val idx = nonZero.indexOfFirst { it >= v }.coerceAtLeast(0)
+        val quartile = (idx * 4 / nonZero.size).coerceIn(0, 3)
+        return quartile + 1
+    }
+    return daily.associate { it.name to bucketFor(it.total) }
+}
+
 internal fun paceProjection(spentSoFar: Double, periodStart: Long, periodEnd: Long, now: Long): Double? {
     if (now < periodStart || now >= periodEnd) return null
     val elapsedFraction = (now - periodStart).toDouble() / (periodEnd - periodStart).toDouble()
@@ -69,14 +82,29 @@ internal fun paceProjection(spentSoFar: Double, periodStart: Long, periodEnd: Lo
     return spentSoFar / elapsedFraction
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-fun ReviewContent(dao: TransactionDao, period: Period, ref: LocalDate, zone: ZoneId, onRefChange: (LocalDate) -> Unit) {
+fun ReviewContent(
+    dao: TransactionDao,
+    period: Period,
+    ref: LocalDate,
+    zone: ZoneId,
+    onRefChange: (LocalDate) -> Unit,
+    showMessage: (String) -> Unit,
+) {
     var series by remember { mutableStateOf<List<TrendPoint>>(emptyList()) }
     var movers by remember { mutableStateOf<List<CategoryMover>>(emptyList()) }
+    var daily by remember { mutableStateOf<List<com.ngigi.wallet.data.NamedTotal>>(emptyList()) }
     LaunchedEffect(period, ref) {
         series = trendSeries(dao, period, ref, count = 10, zone = zone)
         movers = categoryMovers(dao, period, ref, zone)
     }
+    LaunchedEffect(Unit) {
+        val to = System.currentTimeMillis()
+        val from = to - 365L * 86_400_000
+        daily = dao.dailyTotals(from, to)
+    }
+    val buckets = remember(daily) { heatmapBuckets(daily) }
     val pace = remember(period, ref, series) {
         val (from, to) = range(period, ref, zone)
         val now = System.currentTimeMillis()
@@ -144,6 +172,33 @@ fun ReviewContent(dao: TransactionDao, period: Period, ref: LocalDate, zone: Zon
                         "At this rate, ${Format.kes(it)} by the end of this ${period.name.lowercase()}",
                         style = MaterialTheme.typography.bodyMedium,
                     )
+                }
+            }
+            if (buckets.isNotEmpty()) {
+                SectionCard("Spend calendar") {
+                    val bucketColors = listOf(
+                        MaterialTheme.colorScheme.surfaceVariant,
+                        LocalWalletPalette.current.moneyIn.copy(alpha = 0.3f),
+                        LocalWalletPalette.current.moneyIn.copy(alpha = 0.55f),
+                        LocalWalletPalette.current.moneyOut.copy(alpha = 0.7f),
+                        LocalWalletPalette.current.moneyOut,
+                    )
+                    androidx.compose.foundation.layout.FlowRow(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        buckets.entries.sortedBy { it.key }.forEach { (day, bucket) ->
+                            Box(
+                                Modifier
+                                    .size(10.dp)
+                                    .background(bucketColors[bucket], RoundedCornerShape(2.dp))
+                                    .clickable {
+                                        val total = daily.firstOrNull { it.name == day }?.total ?: 0.0
+                                        showMessage("${Format.dayLabel(day)}: ${Format.kes(total)}")
+                                    },
+                            )
+                        }
+                    }
                 }
             }
         }

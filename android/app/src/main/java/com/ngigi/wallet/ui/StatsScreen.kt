@@ -264,7 +264,7 @@ fun StatsScreen(
                     }
                 }
                 } else {
-                    ReviewContent(dao, period, ref, ZoneId.systemDefault(), onRefChange = { ref = it })
+                    ReviewContent(dao, period, ref, ZoneId.systemDefault(), onRefChange = { ref = it }, showMessage = showMessage)
                 }
             }
         }
