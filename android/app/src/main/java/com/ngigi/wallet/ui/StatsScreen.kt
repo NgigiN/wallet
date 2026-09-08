@@ -57,6 +57,19 @@ internal fun comparisonPercent(current: Double, previous: Double): String {
     return "$arrow${kotlin.math.abs(pct)}%"
 }
 
+internal data class BudgetBarState(val fraction: Float, val overflowLabel: String?, val level: Int)
+
+internal fun budgetBarState(spent: Double, limit: Double): BudgetBarState {
+    val ratio = spent / limit
+    val level = when {
+        ratio >= 1.0 -> 2
+        ratio >= 0.8 -> 1
+        else -> 0
+    }
+    val overflow = if (ratio > 1.0) "${Math.round(ratio * 100)}%" else null
+    return BudgetBarState(fraction = ratio.toFloat().coerceIn(0f, 1f), overflowLabel = overflow, level = level)
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StatsScreen(
@@ -79,6 +92,10 @@ fun StatsScreen(
     var earliest by remember { mutableStateOf<LocalDate?>(null) }
     val palette = LocalWalletPalette.current
     val now = System.currentTimeMillis()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val budgetDao = remember { com.ngigi.wallet.data.AppDb.get(context).budgetDao() }
+    val budgets by budgetDao.all().collectAsStateWithLifecycle(initialValue = emptyList())
+    val budgetByCategory = budgets.associateBy { it.category }
 
     LaunchedEffect(Unit) {
         earliest = dao.earliestTransactionDate()
@@ -185,13 +202,32 @@ fun StatsScreen(
                             SectionCard("Where it went") {
                                 val totalOut = cats.sumOf { it.total }.coerceAtLeast(1.0)
                                 cats.forEach { c ->
-                                    CategoryBarRow(
-                                        emoji = categoryEmoji(c.name),
-                                        name = c.name,
-                                        amount = c.total,
-                                        fraction = (c.total / totalOut).toFloat(),
-                                        color = palette.category(c.name),
-                                    )
+                                    val budget = if (period == Period.MONTH) budgetByCategory[c.name] else null
+                                    if (budget != null && budget.monthlyLimit > 0) {
+                                        val state = budgetBarState(c.total, budget.monthlyLimit)
+                                        val barColor = when (state.level) {
+                                            2 -> MaterialTheme.colorScheme.error
+                                            1 -> palette.gold
+                                            else -> palette.moneyIn
+                                        }
+                                        CategoryBarRow(
+                                            emoji = categoryEmoji(c.name),
+                                            name = c.name,
+                                            amount = c.total,
+                                            fraction = state.fraction,
+                                            color = barColor,
+                                            budgetLimit = budget.monthlyLimit,
+                                            overflowLabel = state.overflowLabel,
+                                        )
+                                    } else {
+                                        CategoryBarRow(
+                                            emoji = categoryEmoji(c.name),
+                                            name = c.name,
+                                            amount = c.total,
+                                            fraction = (c.total / totalOut).toFloat(),
+                                            color = palette.category(c.name),
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -244,12 +280,23 @@ private fun PlainStatRow(name: String, value: String) {
 }
 
 @Composable
-private fun CategoryBarRow(emoji: String, name: String, amount: Double, fraction: Float, color: Color) {
+private fun CategoryBarRow(
+    emoji: String,
+    name: String,
+    amount: Double,
+    fraction: Float,
+    color: Color,
+    budgetLimit: Double? = null,
+    overflowLabel: String? = null,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(emoji, Modifier.width(28.dp))
             Text(name, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-            Text(Format.kes(amount), style = MaterialTheme.typography.titleSmall)
+            Text(
+                if (budgetLimit != null) "${Format.kes(amount)} / ${Format.kes(budgetLimit)}" else Format.kes(amount),
+                style = MaterialTheme.typography.titleSmall,
+            )
         }
         Box(
             Modifier
@@ -263,6 +310,9 @@ private fun CategoryBarRow(emoji: String, name: String, amount: Double, fraction
                     .height(8.dp)
                     .background(color, RoundedCornerShape(4.dp)),
             )
+        }
+        overflowLabel?.let {
+            Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
         }
     }
 }

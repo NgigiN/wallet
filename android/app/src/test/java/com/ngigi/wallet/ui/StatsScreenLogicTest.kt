@@ -20,4 +20,26 @@ class StatsScreenLogicTest {
         assertEquals("new", comparisonPercent(500.0, 0.0))
         assertEquals("new", comparisonPercent(0.0, 0.0))
     }
+
+    @Test
+    fun budgetBarStateUnderBudget() {
+        val s = budgetBarState(spent = 3200.0, limit = 5000.0)
+        assertEquals(0.64f, s.fraction, 0.001f)
+        assertEquals(null, s.overflowLabel)
+        assertEquals(0, s.level)
+    }
+
+    @Test
+    fun budgetBarStateNearLimit() {
+        val s = budgetBarState(spent = 4200.0, limit = 5000.0)
+        assertEquals(1, s.level)
+    }
+
+    @Test
+    fun budgetBarStateOverBudgetCapsFractionAndShowsOverflow() {
+        val s = budgetBarState(spent = 6000.0, limit = 5000.0)
+        assertEquals(1f, s.fraction, 0.001f)
+        assertEquals("120%", s.overflowLabel)
+        assertEquals(2, s.level)
+    }
 }
