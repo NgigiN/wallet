@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,10 +44,32 @@ internal suspend fun trendSeries(dao: TransactionDao, period: Period, ref: Local
     return points.reversed()
 }
 
+data class CategoryMover(val category: String, val current: Double, val previous: Double, val percentChange: Int?, val isNew: Boolean)
+
+internal suspend fun categoryMovers(dao: TransactionDao, period: Period, ref: LocalDate, zone: ZoneId, limit: Int = 3): List<CategoryMover> {
+    val (from, to) = range(period, ref, zone)
+    val (prevFrom, prevTo) = range(period, step(period, ref, -1), zone)
+    val current = dao.categoryTotals(from, to).associate { it.name to it.total }
+    val previous = dao.categoryTotals(prevFrom, prevTo).associate { it.name to it.total }
+    val categories = current.keys + previous.keys
+    return categories.map { cat ->
+        val cur = current[cat] ?: 0.0
+        val prev = previous[cat] ?: 0.0
+        val isNew = prev == 0.0 && cur > 0.0
+        val pct = if (prev > 0.0) Math.round((cur - prev) / prev * 100).toInt() else null
+        CategoryMover(cat, cur, prev, pct, isNew)
+    }.sortedByDescending { it.percentChange?.let { p -> kotlin.math.abs(p) } ?: Int.MAX_VALUE }
+        .take(limit)
+}
+
 @Composable
 fun ReviewContent(dao: TransactionDao, period: Period, ref: LocalDate, zone: ZoneId, onRefChange: (LocalDate) -> Unit) {
     var series by remember { mutableStateOf<List<TrendPoint>>(emptyList()) }
-    LaunchedEffect(period, ref) { series = trendSeries(dao, period, ref, count = 10, zone = zone) }
+    var movers by remember { mutableStateOf<List<CategoryMover>>(emptyList()) }
+    LaunchedEffect(period, ref) {
+        series = trendSeries(dao, period, ref, count = 10, zone = zone)
+        movers = categoryMovers(dao, period, ref, zone)
+    }
 
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         if (series.all { it.moneyOut == 0.0 }) {
@@ -84,6 +107,19 @@ fun ReviewContent(dao: TransactionDao, period: Period, ref: LocalDate, zone: Zon
                                         if (rate != null && rate < 0) MaterialTheme.colorScheme.error else LocalWalletPalette.current.moneyIn,
                                         RoundedCornerShape(2.dp),
                                     ),
+                            )
+                        }
+                    }
+                }
+            }
+            if (movers.isNotEmpty()) {
+                SectionCard("Category movers") {
+                    movers.forEach { m ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(m.category.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                if (m.isNew) "new" else "${if ((m.percentChange ?: 0) >= 0) "↑" else "↓"}${kotlin.math.abs(m.percentChange ?: 0)}%",
+                                style = MaterialTheme.typography.titleSmall,
                             )
                         }
                     }

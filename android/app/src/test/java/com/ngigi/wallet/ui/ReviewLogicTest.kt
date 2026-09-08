@@ -69,4 +69,30 @@ class ReviewLogicTest {
     fun savingsRateNegativeWhenOverspending() {
         assertEquals(-0.2f, savingsRate(moneyIn = 1000.0, moneyOut = 1200.0)!!, 0.001f)
     }
+
+    @Test
+    fun categoryMoversRanksByAbsolutePercentChange() = runBlocking {
+        dao.insert(row("A", 3500.0, "out", "food", at(2026, 9, 10)))
+        dao.insert(row("B", 2000.0, "out", "food", at(2026, 8, 10)))
+        dao.insert(row("C", 1000.0, "out", "travel", at(2026, 9, 11)))
+        dao.insert(row("D", 1000.0, "out", "travel", at(2026, 8, 11)))
+        val movers = categoryMovers(dao, Period.MONTH, LocalDate.of(2026, 9, 10), zone)
+        assertEquals("food", movers.first().category)
+        assertEquals(75, movers.first().percentChange)
+        assertEquals(false, movers.first().isNew)
+    }
+
+    @Test
+    fun categoryMoversFlagsBrandNewCategoryAsNewNotAPercent() = runBlocking {
+        dao.insert(row("A", 1000.0, "out", "savings", at(2026, 9, 10)))
+        val movers = categoryMovers(dao, Period.MONTH, LocalDate.of(2026, 9, 10), zone)
+        val savings = movers.first { it.category == "savings" }
+        assertEquals(true, savings.isNew)
+        assertEquals(null, savings.percentChange)
+    }
+
+    @Test
+    fun categoryMoversEmptyWhenNoDataEitherPeriod() = runBlocking {
+        assertEquals(emptyList<CategoryMover>(), categoryMovers(dao, Period.MONTH, LocalDate.of(2026, 9, 10), zone))
+    }
 }
