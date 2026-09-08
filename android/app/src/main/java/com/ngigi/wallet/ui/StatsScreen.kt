@@ -90,6 +90,7 @@ fun StatsScreen(
     var refreshTick by remember { mutableIntStateOf(0) }
     var showJumpSheet by remember { mutableStateOf(false) }
     var earliest by remember { mutableStateOf<LocalDate?>(null) }
+    var tab by remember { mutableStateOf(StatsTab.PERIOD) }
     val palette = LocalWalletPalette.current
     val now = System.currentTimeMillis()
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -165,6 +166,18 @@ fun StatsScreen(
                 Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    StatsTab.entries.forEachIndexed { i, t ->
+                        SegmentedButton(
+                            selected = tab == t,
+                            onClick = { tab = t },
+                            shape = SegmentedButtonDefaults.itemShape(index = i, count = StatsTab.entries.size),
+                        ) {
+                            Text(if (t == StatsTab.PERIOD) "Period" else "Review")
+                        }
+                    }
+                }
+
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     SingleChoiceSegmentedButtonRow(Modifier.weight(1f)) {
                         Period.entries.forEachIndexed { i, p ->
@@ -185,6 +198,7 @@ fun StatsScreen(
                     }
                 }
 
+                if (tab == StatsTab.PERIOD) {
                 when {
                     loading -> Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
@@ -248,6 +262,9 @@ fun StatsScreen(
                         }
                         Spacer(Modifier.height(8.dp))
                     }
+                }
+                } else {
+                    ReviewContent(dao, period, ref, ZoneId.systemDefault(), onRefChange = { ref = it })
                 }
             }
         }
