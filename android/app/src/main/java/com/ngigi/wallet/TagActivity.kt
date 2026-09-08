@@ -20,13 +20,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
 import com.ngigi.wallet.data.AppDb
+import com.ngigi.wallet.data.BudgetAlert
 import com.ngigi.wallet.data.Status
+import com.ngigi.wallet.data.TransactionDao
 import com.ngigi.wallet.data.TransactionEntity
+import com.ngigi.wallet.notify.AndroidNotifier
 import com.ngigi.wallet.sync.Sync
 import com.ngigi.wallet.ui.TagScreen
 import com.ngigi.wallet.ui.theme.WalletTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 class TagActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -58,6 +64,7 @@ class TagActivity : ComponentActivity() {
                                     } else {
                                         dao.tag(r.id, category, reason)
                                     }
+                                    checkBudgetAlert(applicationContext, dao, category)
                                     Sync.requestSync(applicationContext)
                                     finish()
                                 }
@@ -67,5 +74,28 @@ class TagActivity : ComponentActivity() {
                 }
             }
         }
+    }
+}
+
+private suspend fun checkBudgetAlert(context: android.content.Context, dao: TransactionDao, category: String) {
+    val budgetDao = AppDb.get(context).budgetDao()
+    val budget = budgetDao.get(category) ?: return
+    if (budget.monthlyLimit <= 0) return
+
+    val today = LocalDate.now()
+    val zone = ZoneId.systemDefault()
+    val monthStart = today.withDayOfMonth(1).atStartOfDay(zone).toInstant().toEpochMilli()
+    val monthEnd = today.withDayOfMonth(1).plusMonths(1).atStartOfDay(zone).toInstant().toEpochMilli() - 1
+    val spend = dao.categorySpend(category, monthStart, monthEnd)
+    val currentMonth = today.format(DateTimeFormatter.ofPattern("yyyy-MM"))
+
+    val decision = BudgetAlert.evaluate(
+        spend, budget.monthlyLimit, budget.lastAlertLevel, budget.lastAlertMonth, currentMonth,
+    )
+    if (decision.newLevel != budget.lastAlertLevel || budget.lastAlertMonth != currentMonth) {
+        budgetDao.upsert(budget.copy(lastAlertLevel = decision.newLevel, lastAlertMonth = currentMonth))
+    }
+    if (decision.shouldNotify) {
+        AndroidNotifier(context).notifyBudgetAlert(category, spend, budget.monthlyLimit, decision.newLevel)
     }
 }

@@ -14,15 +14,20 @@ import com.ngigi.wallet.parser.ParseResult
 interface Notifier {
     fun notifyNewTransaction(rowId: Long, tx: ParseResult.Tx, topCategories: List<String>)
     fun notifyParseFailed(rowId: Long)
+    fun notifyBudgetAlert(category: String, spend: Double, limit: Double, level: Int)
 }
 
 class AndroidNotifier(private val context: Context) : Notifier {
     companion object {
         const val CHANNEL_TX = "transactions"
+        const val CHANNEL_BUDGET = "budget_alerts"
         fun ensureChannels(context: Context) {
             val mgr = context.getSystemService(NotificationManager::class.java)
             mgr.createNotificationChannel(
                 NotificationChannel(CHANNEL_TX, "Transactions", NotificationManager.IMPORTANCE_HIGH)
+            )
+            mgr.createNotificationChannel(
+                NotificationChannel(CHANNEL_BUDGET, "Budget alerts", NotificationManager.IMPORTANCE_DEFAULT)
             )
         }
     }
@@ -61,6 +66,24 @@ class AndroidNotifier(private val context: Context) : Notifier {
             .setAutoCancel(true)
             .setContentIntent(tagActivityIntent(rowId))
         notify(rowId, builder)
+    }
+
+    override fun notifyBudgetAlert(category: String, spend: Double, limit: Double, level: Int) {
+        ensureChannels(context)
+        val pct = if (limit > 0) (spend / limit * 100).toInt() else 0
+        val title = if (level >= 2) "Over budget: ${category.replaceFirstChar { it.uppercase() }}"
+        else "Nearing budget: ${category.replaceFirstChar { it.uppercase() }}"
+        val builder = NotificationCompat.Builder(context, CHANNEL_BUDGET)
+            .setSmallIcon(android.R.drawable.stat_notify_chat)
+            .setContentTitle(title)
+            .setContentText("Ksh %,.0f of Ksh %,.0f (%d%%) this month".format(spend, limit, pct))
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+        try {
+            NotificationManagerCompat.from(context).notify(("budget_" + category).hashCode(), builder.build())
+        } catch (e: SecurityException) {
+            // POST_NOTIFICATIONS not granted; the budget bar in Stats still shows the state.
+        }
     }
 
     private fun tagActivityIntent(rowId: Long): PendingIntent =

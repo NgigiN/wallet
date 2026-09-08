@@ -28,6 +28,7 @@ class SmsHandlerTest {
             notified.add("tx:$rowId")
         }
         override fun notifyParseFailed(rowId: Long) { notified.add("failed:$rowId") }
+        override fun notifyBudgetAlert(category: String, spend: Double, limit: Double, level: Int) {}
     }
 
     private lateinit var handler: SmsHandler
