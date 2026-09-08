@@ -1,6 +1,7 @@
 package com.ngigi.wallet.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -45,6 +46,7 @@ import com.ngigi.wallet.data.TransactionDao
 import com.ngigi.wallet.data.TransactionEntity
 import com.ngigi.wallet.ui.theme.LocalWalletPalette
 import com.ngigi.wallet.ui.theme.categoryEmoji
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 
@@ -65,8 +67,15 @@ fun StatsScreen(
     var people by remember { mutableStateOf(emptyList<NamedTotal>()) }
     var loading by remember { mutableStateOf(true) }
     var refreshTick by remember { mutableIntStateOf(0) }
+    var showJumpSheet by remember { mutableStateOf(false) }
+    var earliest by remember { mutableStateOf<LocalDate?>(null) }
     val palette = LocalWalletPalette.current
     val now = System.currentTimeMillis()
+
+    LaunchedEffect(Unit) {
+        earliest = dao.earliestTransactionDate()
+            ?.let { Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).toLocalDate() }
+    }
 
     val (refreshing, refresh) = rememberServerRefresh { msg ->
         refreshTick++
@@ -95,6 +104,7 @@ fun StatsScreen(
                         label(period, ref),
                         style = MaterialTheme.typography.labelMedium,
                         color = palette.onHeroDim,
+                        modifier = Modifier.clickable { showJumpSheet = true },
                     )
                     Text(
                         Format.kes(net, hidden),
@@ -187,6 +197,15 @@ fun StatsScreen(
                 }
             }
         }
+    }
+
+    if (showJumpSheet) {
+        PeriodJumpSheet(
+            period = period,
+            periods = periodsInRange(period, earliest ?: LocalDate.now()),
+            onSelect = { ref = it; showJumpSheet = false },
+            onDismiss = { showJumpSheet = false },
+        )
     }
 }
 

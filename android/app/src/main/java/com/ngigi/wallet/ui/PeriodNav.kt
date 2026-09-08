@@ -1,5 +1,17 @@
 package com.ngigi.wallet.ui
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.ZoneId
@@ -64,4 +76,28 @@ internal fun periodsInRange(period: Period, earliest: LocalDate, today: LocalDat
         cursor = step(period, cursor, -1)
     }
     return result
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PeriodJumpSheet(
+    period: Period,
+    periods: List<LocalDate>,
+    onSelect: (LocalDate) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        LazyColumn(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
+            items(periods) { d ->
+                Text(
+                    label(period, d),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onSelect(d) }
+                        .padding(horizontal = 24.dp, vertical = 14.dp),
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+            }
+        }
+    }
 }
