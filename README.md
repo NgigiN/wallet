@@ -1,19 +1,31 @@
-# IRS - Intelligent Receipt Scanner
+# Wallet
 
-A Discord bot that automatically parses and categorizes M-PESA transaction messages for personal finance tracking. The bot extracts transaction details from M-PESA SMS notifications and stores them in a SQLite database with user-defined categories and reasons.
+A personal finance tracker with two parts sharing one backend database:
+
+- **Go backend** — a Discord bot that parses M-PESA/Airtel SMS forwarded as
+  messages, plus an authenticated HTTP API the Android app syncs through.
+  Deployed at `wallet.samtama.lol`.
+- **Android app** (`android/`) — intercepts M-PESA/Airtel SMS directly on the
+  phone, prompts you to tag it, and syncs to the same backend. Has its own
+  Stats/Review screens and local budgets (see [Android App](#android-app)
+  below).
+
+Both surfaces read and write the same `transactions` table, so a transaction
+tagged on the phone shows up in `!summary`/`!week`/`!month` on Discord, and
+vice versa for anything entered directly in the Discord channel.
 
 ## Features
 
-- **Automated M-PESA Parsing**: Extracts transaction details from M-PESA SMS messages
-- **Batch Processing**: Process multiple transactions in a single message
-- **Category Management**: Supports predefined categories (food, travel, savings, church, investments)
+- **Automated M-PESA/Airtel Parsing**: Extracts transaction details from SMS/Discord messages
+- **Batch Processing**: Process multiple transactions in a single Discord message
+- **Category Management**: `food`, `travel`, `savings`, `church`, `investments`, plus `income` and `transfer` (auto-tagged; see [Supported Categories](#supported-categories) for the Discord-vs-app distinction)
 - **Flexible Metadata**: Use full or abbreviated forms (`Category:` or `c:`, `Reason:` or `r:`)
 - **SQLite Storage**: Persistent transaction storage with GORM ORM
-- **Discord Integration**: Real-time message processing and feedback
+- **Discord Integration**: Real-time message processing, summaries, and period reviews (`!week`, `!month`)
 - **Transaction Validation**: Ensures data integrity and proper formatting
-- **Summary Commands**: View transaction summaries by category
 - **Health Monitoring**: Built-in health check endpoint
 - **Unicode Cleaning**: Handles invisible characters from Discord messages
+- **Android capture app**: SMS interception, tagging, sync, Stats/Review screens, category budgets — see [Android App](#android-app)
 
 ## Architecture
 
@@ -21,20 +33,29 @@ A Discord bot that automatically parses and categorizes M-PESA transaction messa
 cmd/
 ├── main.go                 # Application entry point
 internal/
+├── api/
+│   ├── server.go           # Health + bearer-auth routing
+│   └── transactions.go     # POST/GET /api/transactions (used by the Android app)
 ├── config/
-│   └── config.go          # Configuration management
+│   └── config.go           # Configuration management
 ├── discord/
-│   └── bot.go             # Discord bot implementation
+│   ├── bot.go               # Discord bot: message handling, !summary, !week/!month
+│   └── period_commands.go   # Period range resolution + review-message formatting
 ├── mpesa/
-│   ├── parser.go          # M-PESA message parsing logic
-│   └── parser_test.go     # Parser tests
+│   ├── parser.go            # M-PESA message parsing logic
+│   └── parser_test.go       # Parser tests
 └── storage/
-    ├── db.go              # Database operations
-    └── models.go          # Data models
+    ├── db.go                # Database operations
+    ├── models.go             # Data models
+    └── reports.go            # Period-scoped report queries (totals, top days, movers, ...)
+android/                    # Android capture app (Kotlin/Compose) — see Android App section
+deploy/
+├── nginx-wallet.conf        # nginx vhost for wallet.samtama.lol
+└── VPS_SETUP.md              # One-time VPS migration notes
 .github/
 └── workflows/
-    └── deploy.yml         # GitHub Actions CI/CD
-start_app.sh               # Deployment script
+    └── deploy.yml           # GitHub Actions CI/CD
+start_app.sh                 # Deployment script
 ```
 
 ## Prerequisites
@@ -136,6 +157,22 @@ View transaction summaries:
 !summary travel            # Show detailed travel transactions
 ```
 
+### Period Review Commands
+
+View a full breakdown (net/in/out, comparison vs. the previous period,
+savings rate, category/day/expense/counterparty breakdown) for a week or
+month:
+
+```
+!week                       # Current ISO week, so far
+!week 37                    # A specific ISO week number (this year)
+!month                      # Current calendar month
+!month august               # A named month (this year)
+!month 8                    # ...or by number
+!lastweek                   # Shorthand for the previous week
+!lastmonth                  # Shorthand for the previous month
+```
+
 ### Supported Categories
 
 - `food` - Food and dining expenses
@@ -143,6 +180,14 @@ View transaction summaries:
 - `savings` - Savings and deposits
 - `church` - Church and religious donations
 - `investments` - Investment transactions
+
+The Android app and synced data also use two more categories the Discord
+bot doesn't validate for *manual* Discord entry: `income` (incoming
+money) and `transfer` (auto-tagged M-PESA/Pochi internal transfers,
+excluded from spend totals everywhere). If you type
+`Category: income`/`Category: transfer` directly into Discord, the bot
+will reject it — those two only ever get set by the Android app's parser
+and sync path, not by hand.
 
 ## Database Schema
 
@@ -199,6 +244,50 @@ The bot exposes a health check endpoint at `http://localhost:8080/health`:
     "timestamp": "2024-01-15T10:30:45Z"
 }
 ```
+
+## Android App
+
+`android/` is a native Kotlin/Compose app (package `com.ngigi.wallet`, minSdk
+26) that captures M-PESA/Airtel SMS directly on the phone — no need to
+forward anything to Discord.
+
+### What it does
+
+- **SMS capture**: listens for M-PESA/Airtel SMS via a broadcast receiver and
+  records each transaction the moment it lands, even with the app closed.
+- **Tagging**: a heads-up notification (with quick-tag actions for your top
+  categories) or the in-app Inbox lets you categorize each transaction;
+  messages the parser couldn't read land in the Inbox for manual entry.
+- **Sync**: tagged transactions push to the backend's `/api/transactions`
+  (bearer-auth); a "sync history from server" action in Settings pulls
+  everything the backend already knows about, including pre-app history.
+- **Stats & Review**: the Stats screen's "Period" tab shows any week
+  (ISO-numbered), month, or year — tap the period label to jump straight to
+  any period, not just step one at a time — with a spend comparison against
+  the previous period. The "Review" tab adds cross-period insight Period
+  can't show on its own: a spend trend strip, a savings-rate trend, category
+  movers (which category changed most vs. last period), a pace projection
+  for the period still in progress, and a trailing-12-month spend calendar
+  heatmap.
+- **Budgets**: set a monthly spend limit per category in Settings; category
+  bars on the Stats screen switch to a budget-progress view, and you get a
+  notification at 80% and 100% of budget. Budgets are local to the phone —
+  not synced to the backend or visible from Discord.
+- **Shoulder-surfing guard**: amounts are hidden (`Ksh ••••`) by default on
+  every app open and re-hide when the app leaves the foreground; tap the eye
+  icon to reveal.
+
+### Building
+
+```bash
+cd android
+./gradlew :app:installDebug   # builds and installs on a connected device/emulator
+./gradlew :app:testDebugUnitTest   # unit tests (DAO logic via Robolectric, pure logic via plain JUnit)
+```
+
+Requires `android/local.properties` with `sdk.dir=<path to your Android SDK>`
+(not committed — machine-specific). Point the app at your backend and API
+token from the in-app Settings screen (Server connection section).
 
 ## Development
 
