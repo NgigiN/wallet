@@ -95,4 +95,17 @@ class StatsDaoTest {
     fun earliestTransactionDateNullWhenEmpty() = runBlocking {
         assertEquals(null, dao.earliestTransactionDate())
     }
+
+    @Test
+    fun categorySpendSumsAmountAndCostForOneCategory() = runBlocking {
+        dao.insert(row("A", 1000.0, "out", "food", "S1", ms(10, 9), cost = 30.0))
+        dao.insert(row("B", 500.0, "out", "food", "S2", ms(11, 9)))
+        dao.insert(row("C", 900.0, "out", "travel", "S3", ms(10, 10)))
+        assertEquals(1530.0, dao.categorySpend("food", ms(1, 0), ms(30, 23)), 0.001)
+    }
+
+    @Test
+    fun categorySpendZeroWhenNoMatchingRows() = runBlocking {
+        assertEquals(0.0, dao.categorySpend("food", ms(1, 0), ms(30, 23)), 0.001)
+    }
 }

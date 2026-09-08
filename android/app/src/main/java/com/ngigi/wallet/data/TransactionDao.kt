@@ -86,4 +86,9 @@ interface TransactionDao {
 
     @Query("SELECT MIN(date_time) FROM transactions WHERE status != '${Status.PARSE_FAILED}'")
     suspend fun earliestTransactionDate(): Long?
+
+    @Query("""SELECT COALESCE(SUM(amount + cost), 0) FROM transactions
+              WHERE direction = 'out' AND category = :category
+                AND date_time BETWEEN :from AND :to AND status != '${Status.PARSE_FAILED}'""")
+    suspend fun categorySpend(category: String, from: Long, to: Long): Double
 }
