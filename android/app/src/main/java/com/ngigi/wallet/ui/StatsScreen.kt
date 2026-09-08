@@ -45,35 +45,8 @@ import com.ngigi.wallet.data.TransactionDao
 import com.ngigi.wallet.data.TransactionEntity
 import com.ngigi.wallet.ui.theme.LocalWalletPalette
 import com.ngigi.wallet.ui.theme.categoryEmoji
-import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.util.Locale
-
-enum class Period { WEEK, MONTH, YEAR }
-
-private fun range(period: Period, ref: LocalDate, zone: ZoneId): Pair<Long, Long> {
-    val (start, end) = when (period) {
-        Period.WEEK -> ref.with(DayOfWeek.MONDAY).let { it to it.plusDays(7) }
-        Period.MONTH -> ref.withDayOfMonth(1).let { it to it.plusMonths(1) }
-        Period.YEAR -> ref.withDayOfYear(1).let { it to it.plusYears(1) }
-    }
-    return start.atStartOfDay(zone).toInstant().toEpochMilli() to
-        end.atStartOfDay(zone).toInstant().toEpochMilli() - 1
-}
-
-private fun label(period: Period, ref: LocalDate): String = when (period) {
-    Period.WEEK -> "Week of " + ref.with(DayOfWeek.MONDAY).format(DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH))
-    Period.MONTH -> ref.format(DateTimeFormatter.ofPattern("MMMM uuuu", Locale.ENGLISH))
-    Period.YEAR -> ref.year.toString()
-}
-
-private fun step(period: Period, ref: LocalDate, dir: Long): LocalDate = when (period) {
-    Period.WEEK -> ref.plusWeeks(dir)
-    Period.MONTH -> ref.plusMonths(dir)
-    Period.YEAR -> ref.plusYears(dir)
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
