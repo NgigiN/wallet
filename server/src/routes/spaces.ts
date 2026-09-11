@@ -4,6 +4,7 @@ import type { Auth } from "../auth.js";
 import type { Db } from "../db/client.js";
 import { member, organization } from "../db/schema.js";
 import { requireSpaceMember, spaceKind, type SpaceVars } from "../middleware/space.js";
+import { syncRoutes } from "./sync.js";
 
 async function loadMemberships(db: Db, userId: string) {
   return db.select({ org: organization, role: member.role }).from(member)
@@ -41,5 +42,6 @@ export function spaceRoutes(db: Db, auth: Auth) {
 
   r.use("/:spaceId/*", requireSpaceMember(db));
   r.get("/:spaceId/ping", (c) => c.json({ space: c.get("space") }));
+  r.route("/:spaceId/sync", syncRoutes(db));
   return r;
 }
