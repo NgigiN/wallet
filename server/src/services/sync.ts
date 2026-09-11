@@ -49,12 +49,22 @@ export async function pullChanges(db: Db, spaceId: string, since: number, limit:
   // up in the merged page (still the smallest `limit` seqs overall) but does make
   // `all.length > limit` an accurate signal that further rows exist past the cursor.
   const fetchLimit = limit + 1;
-  const [tx, cat, bud, rul] = await Promise.all([
-    db.select().from(transactions).where(and(eq(transactions.spaceId, spaceId), gt(transactions.seq, since))).orderBy(asc(transactions.seq)).limit(fetchLimit),
-    db.select().from(categories).where(and(eq(categories.spaceId, spaceId), gt(categories.seq, since))).orderBy(asc(categories.seq)).limit(fetchLimit),
-    db.select().from(budgets).where(and(eq(budgets.spaceId, spaceId), gt(budgets.seq, since))).orderBy(asc(budgets.seq)).limit(fetchLimit),
-    db.select().from(rules).where(and(eq(rules.spaceId, spaceId), gt(rules.seq, since))).orderBy(asc(rules.seq)).limit(fetchLimit),
-  ]);
+  // Run the four selects inside one repeatable-read transaction so they all see the same
+  // snapshot. Without this, Promise.all issues them on separate pooled connections with no
+  // shared snapshot: a push that commits between two of them could appear in one table's
+  // result but not another's, producing an inconsistent page for a cursor that's supposed
+  // to be a single consistent point in the change stream. A transaction pins to a single
+  // connection, so the four selects are awaited one at a time here rather than via
+  // Promise.all — issuing overlapping queries against one pg client is deprecated (and not
+  // true parallelism anyway); repeatable read is what gives them a shared snapshot, not
+  // concurrency.
+  const [tx, cat, bud, rul] = await db.transaction(async (t) => {
+    const txRows = await t.select().from(transactions).where(and(eq(transactions.spaceId, spaceId), gt(transactions.seq, since))).orderBy(asc(transactions.seq)).limit(fetchLimit);
+    const catRows = await t.select().from(categories).where(and(eq(categories.spaceId, spaceId), gt(categories.seq, since))).orderBy(asc(categories.seq)).limit(fetchLimit);
+    const budRows = await t.select().from(budgets).where(and(eq(budgets.spaceId, spaceId), gt(budgets.seq, since))).orderBy(asc(budgets.seq)).limit(fetchLimit);
+    const rulRows = await t.select().from(rules).where(and(eq(rules.spaceId, spaceId), gt(rules.seq, since))).orderBy(asc(rules.seq)).limit(fetchLimit);
+    return [txRows, catRows, budRows, rulRows] as const;
+  }, { isolationLevel: "repeatable read" });
   type Tagged = { seq: number; kind: "t" | "c" | "b" | "r"; row: any };
   const all: Tagged[] = [
     ...tx.map((row) => ({ seq: row.seq, kind: "t" as const, row })),
@@ -100,21 +110,32 @@ export const budgetWireIn = z.object({
 export const ruleWireIn = z.object({
   id: uuid, match_counterparty: z.string().trim().min(1), category_id: uuid, client_updated_at: isoDate, deleted_at: nullableIso,
 });
+// Each table field tolerates `null` as well as being absent, both meaning "no rows of
+// this kind in this push" (a client that always sends every key, even when empty, would
+// otherwise be rejected).
+const wireList = z.array(z.unknown()).nullish().transform((v) => v ?? []);
 export const pushBody = z.object({
-  transactions: z.array(z.unknown()).default([]), categories: z.array(z.unknown()).default([]),
-  budgets: z.array(z.unknown()).default([]), rules: z.array(z.unknown()).default([]),
+  transactions: wireList, categories: wireList, budgets: wireList, rules: wireList,
 });
 
 export type PushResult = { table: "transactions" | "categories" | "budgets" | "rules"; id: string; status: "applied" | "unchanged" | "rejected"; error?: string; message?: string; row?: unknown };
 export type PushResponse = { results: PushResult[]; cursor: number };
 
+// A batch whose shape doesn't match PushBody at all (e.g. a table field that's neither an
+// array nor null/absent) is a malformed request, not a malformed row: it can't be reported
+// per-row because we don't have rows to iterate. The route maps this to a 400, distinct from
+// per-row `status: "rejected"` results for malformed items within an otherwise-valid batch.
+export class PushValidationError extends Error {}
+
 const nextSeq = sql<number>`nextval('change_seq')`;
 
 export async function pushChanges(db: Db, ctx: { spaceId: string; userId: string }, raw: unknown): Promise<PushResponse> {
-  const body = pushBody.parse(raw);
+  const parsedBody = pushBody.safeParse(raw);
+  if (!parsedBody.success) throw new PushValidationError(parsedBody.error.issues[0]?.message ?? "invalid push body");
+  const body = parsedBody.data;
   const results: PushResult[] = [];
 
-  await db.transaction(async (tx) => {
+  const cursor = await db.transaction(async (tx) => {
     // Lock the space's rows for the duration of this push so two devices cannot interleave.
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${ctx.spaceId}))`);
     const now = new Date();
@@ -129,7 +150,13 @@ export async function pushChanges(db: Db, ctx: { spaceId: string; userId: string
       const p = categoryWireIn.safeParse(item);
       if (!p.success) { results.push({ table: "categories", id: String((item as any)?.id ?? ""), status: "rejected", error: "invalid", message: p.error.issues[0]?.message }); continue; }
       const w = p.data;
-      const [existing] = await tx.select().from(categories).where(and(eq(categories.spaceId, ctx.spaceId), eq(categories.id, w.id))).limit(1);
+      // Look up by id across all spaces first: the id is a client-generated uuid, and a
+      // row with the same id already living in a *different* space (e.g. two devices that
+      // both generated an id offline before either had synced) must never be merged into
+      // or overwritten by this space's push.
+      const [byId] = await tx.select().from(categories).where(eq(categories.id, w.id)).limit(1);
+      if (byId && byId.spaceId !== ctx.spaceId) { results.push({ table: "categories", id: w.id, status: "rejected", error: "id_conflict" }); continue; }
+      const existing = byId;
       if (existing?.isSystem && (w.kind !== existing.kind || w.deleted_at || w.archived)) { results.push({ table: "categories", id: w.id, status: "rejected", error: "system_category", row: toCategoryWire(existing) }); continue; }
       const [dup] = await tx.select({ id: categories.id }).from(categories)
         .where(and(eq(categories.spaceId, ctx.spaceId), sql`lower(${categories.name}) = lower(${w.name})`, sql`${categories.deletedAt} is null`, sql`${categories.id} <> ${w.id}`)).limit(1);
@@ -147,14 +174,27 @@ export async function pushChanges(db: Db, ctx: { spaceId: string; userId: string
       }
     }
 
-    // 2. budgets
-    let catIds = await liveCategoryIds();
+    // 2. budgets (catIds is computed once, after categories, and reused by budgets, rules
+    // and transactions below: none of those three tables can add to it, so a second read
+    // would just be a wasted round trip)
+    const catIds = await liveCategoryIds();
     for (const item of body.budgets) {
       const p = budgetWireIn.safeParse(item);
       if (!p.success) { results.push({ table: "budgets", id: String((item as any)?.id ?? ""), status: "rejected", error: "invalid", message: p.error.issues[0]?.message }); continue; }
       const w = p.data;
+      const [byId] = await tx.select().from(budgets).where(eq(budgets.id, w.id)).limit(1);
+      if (byId && byId.spaceId !== ctx.spaceId) { results.push({ table: "budgets", id: w.id, status: "rejected", error: "id_conflict" }); continue; }
       if (!catIds.has(w.category_id)) { results.push({ table: "budgets", id: w.id, status: "rejected", error: "bad_category" }); continue; }
-      const [existing] = await tx.select().from(budgets).where(and(eq(budgets.spaceId, ctx.spaceId), eq(budgets.id, w.id))).limit(1);
+      // The `budgets_space_category_uq` index means a second budget for a category that
+      // already has a live one would 500 on insert. Treat it as an edit of the existing
+      // budget instead (mirroring mergeTransaction's receipt-code dedupe): if there's no
+      // row with this exact id, but there is a live row for the same category, that row is
+      // "existing" and the push becomes an update targeting its id.
+      let existing = byId;
+      if (!existing) {
+        [existing] = await tx.select().from(budgets)
+          .where(and(eq(budgets.spaceId, ctx.spaceId), eq(budgets.categoryId, w.category_id), sql`${budgets.deletedAt} is null`)).limit(1);
+      }
       const incoming = { id: w.id, spaceId: ctx.spaceId, categoryId: w.category_id, monthlyLimitCents: w.monthly_limit_cents, clientUpdatedAt: w.client_updated_at, deletedAt: w.deleted_at };
       const m = mergeLww(existing ?? null, incoming as any);
       if (m.action === "insert") {
@@ -173,9 +213,19 @@ export async function pushChanges(db: Db, ctx: { spaceId: string; userId: string
       const p = ruleWireIn.safeParse(item);
       if (!p.success) { results.push({ table: "rules", id: String((item as any)?.id ?? ""), status: "rejected", error: "invalid", message: p.error.issues[0]?.message }); continue; }
       const w = p.data;
+      const [byId] = await tx.select().from(rules).where(eq(rules.id, w.id)).limit(1);
+      if (byId && byId.spaceId !== ctx.spaceId) { results.push({ table: "rules", id: w.id, status: "rejected", error: "id_conflict" }); continue; }
       if (!catIds.has(w.category_id)) { results.push({ table: "rules", id: w.id, status: "rejected", error: "bad_category" }); continue; }
-      const [existing] = await tx.select().from(rules).where(and(eq(rules.spaceId, ctx.spaceId), eq(rules.id, w.id))).limit(1);
-      const incoming = { id: w.id, spaceId: ctx.spaceId, matchCounterparty: w.match_counterparty.toLowerCase().replace(/\s+/g, " "), categoryId: w.category_id, createdBy: existing?.createdBy ?? ctx.userId, clientUpdatedAt: w.client_updated_at, deletedAt: w.deleted_at };
+      const normalized = w.match_counterparty.toLowerCase().replace(/\s+/g, " ");
+      // `rules_space_match_uq` means a second rule for the same (normalised) counterparty
+      // would 500 on insert. Same dedupe-as-edit treatment as budgets above: fall back to
+      // the live row matching this counterparty when there's no id match.
+      let existing = byId;
+      if (!existing) {
+        [existing] = await tx.select().from(rules)
+          .where(and(eq(rules.spaceId, ctx.spaceId), eq(rules.matchCounterparty, normalized), sql`${rules.deletedAt} is null`)).limit(1);
+      }
+      const incoming = { id: w.id, spaceId: ctx.spaceId, matchCounterparty: normalized, categoryId: w.category_id, createdBy: existing?.createdBy ?? ctx.userId, clientUpdatedAt: w.client_updated_at, deletedAt: w.deleted_at };
       const m = mergeLww(existing ?? null, incoming as any);
       if (m.action === "insert") {
         const [row] = await tx.insert(rules).values({ ...incoming, updatedAt: now }).returning();
@@ -188,9 +238,8 @@ export async function pushChanges(db: Db, ctx: { spaceId: string; userId: string
       }
     }
 
-    // 4. transactions (re-read live category ids: a category pushed in step 1 above must
-    // be visible here for a transaction in the same batch to reference it)
-    catIds = await liveCategoryIds();
+    // 4. transactions (catIds computed once above, after categories — see the comment on
+    // that declaration)
     for (const item of body.transactions) {
       const p = txWireIn.safeParse(item);
       if (!p.success) { results.push({ table: "transactions", id: String((item as any)?.id ?? ""), status: "rejected", error: "invalid", message: p.error.issues[0]?.message }); continue; }
@@ -200,7 +249,9 @@ export async function pushChanges(db: Db, ctx: { spaceId: string; userId: string
         balanceCents: w.balance_cents, counterparty: w.counterparty, occurredAt: w.occurred_at, categoryId: w.category_id, reason: w.reason,
         clientUpdatedAt: w.client_updated_at, deletedAt: w.deleted_at,
       };
-      let [existing] = await tx.select().from(transactions).where(and(eq(transactions.spaceId, ctx.spaceId), eq(transactions.id, w.id))).limit(1);
+      const [byId] = await tx.select().from(transactions).where(eq(transactions.id, w.id)).limit(1);
+      if (byId && byId.spaceId !== ctx.spaceId) { results.push({ table: "transactions", id: w.id, status: "rejected", error: "id_conflict" }); continue; }
+      let existing = byId;
       if (!existing && w.receipt_code) {
         [existing] = await tx.select().from(transactions).where(and(
           eq(transactions.spaceId, ctx.spaceId), eq(transactions.source, w.source), eq(transactions.receiptCode, w.receipt_code), eq(transactions.direction, w.direction),
@@ -218,8 +269,14 @@ export async function pushChanges(db: Db, ctx: { spaceId: string; userId: string
         results.push({ table: "transactions", id: w.id, status: "unchanged", row: toTxWire(m.row as any) });
       }
     }
+
+    // Read the cursor here, still inside the transaction (and still holding the advisory
+    // lock): reading it after `db.transaction` returns would run on a separate pooled
+    // connection, after our commit has released the lock, letting a concurrent same-space
+    // push commit in between and hand this caller a cursor that silently skips those rows.
+    const [{ v }] = (await tx.execute(sql`select last_value as v from change_seq`)).rows as any[];
+    return Number(v);
   });
 
-  const [{ v }] = (await db.execute(sql`select last_value as v from change_seq`)).rows as any[];
-  return { results, cursor: Number(v) };
+  return { results, cursor };
 }

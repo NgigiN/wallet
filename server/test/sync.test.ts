@@ -156,4 +156,76 @@ describe("sync push", () => {
     })).json();
     expect(res.results[0]).toMatchObject({ status: "rejected", error: "duplicate_name" });
   });
+
+  it("push a rule normalises counterparty casing/whitespace, is applied, and pulls back normalised", async () => {
+    const { app, token, spaceId, cat } = await setup();
+    const ruleId = "77777777-7777-7777-8777-777777777777";
+    const res = await (await push(app, token, spaceId, {
+      rules: [{ id: ruleId, match_counterparty: "  Naivas   Supermarket ", category_id: cat("food"), client_updated_at: "2026-09-01T11:00:00.000Z", deleted_at: null }],
+    })).json();
+    expect(res.results[0].status).toBe("applied");
+    expect(res.results[0].row.match_counterparty).toBe("naivas supermarket");
+    const pulled = await (await app.request(`/api/v2/spaces/${spaceId}/sync?since=0`, authed(token))).json();
+    expect(pulled.rules.find((r: any) => r.id === ruleId)?.match_counterparty).toBe("naivas supermarket");
+  });
+
+  it("rejects a rule referencing a nonexistent category", async () => {
+    const { app, token, spaceId } = await setup();
+    const res = await (await push(app, token, spaceId, {
+      rules: [{ id: "88888888-8888-7888-8888-888888888888", match_counterparty: "Carrefour", category_id: "99999999-9999-7999-8999-999999999999", client_updated_at: "2026-09-01T11:00:00.000Z", deleted_at: null }],
+    })).json();
+    expect(res.results[0]).toMatchObject({ status: "rejected", error: "bad_category" });
+  });
+
+  it("a second rule for the same normalised counterparty converges to the first (dedupe-as-edit)", async () => {
+    const { app, token, spaceId, cat } = await setup();
+    const firstId = "aaaaaaa1-1111-7111-8111-111111111111";
+    const secondId = "aaaaaaa2-2222-7222-8222-222222222222";
+    await push(app, token, spaceId, { rules: [{ id: firstId, match_counterparty: "Naivas Supermarket", category_id: cat("food"), client_updated_at: "2026-09-01T11:00:00.000Z", deleted_at: null }] });
+    const res = await (await push(app, token, spaceId, {
+      rules: [{ id: secondId, match_counterparty: "  naivas    SUPERMARKET  ", category_id: cat("travel"), client_updated_at: "2026-09-01T12:00:00.000Z", deleted_at: null }],
+    })).json();
+    expect(res.results[0].status).toBe("applied");
+    expect(res.results[0].row.id).toBe(firstId);
+  });
+
+  it("a second budget for the same category converges to the first (dedupe-as-edit)", async () => {
+    const { app, token, spaceId, cat } = await setup();
+    const firstId = "bbbbbbb1-1111-7111-8111-111111111111";
+    const secondId = "bbbbbbb2-2222-7222-8222-222222222222";
+    const catId = cat("food");
+    await push(app, token, spaceId, { budgets: [{ id: firstId, category_id: catId, monthly_limit_cents: 100000, client_updated_at: "2026-09-01T11:00:00.000Z", deleted_at: null }] });
+    const res = await (await push(app, token, spaceId, {
+      budgets: [{ id: secondId, category_id: catId, monthly_limit_cents: 200000, client_updated_at: "2026-09-01T12:00:00.000Z", deleted_at: null }],
+    })).json();
+    expect(res.results[0].status).toBe("applied");
+    expect(res.results[0].row.id).toBe(firstId);
+  });
+
+  it("a null table field is treated as an empty list", async () => {
+    const { app, token, spaceId } = await setup();
+    const res = await push(app, token, spaceId, { transactions: null });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.results).toEqual([]);
+  });
+
+  it("a non-array table field is a 400 bad_request, not a 500", async () => {
+    const { app, token, spaceId } = await setup();
+    const res = await push(app, token, spaceId, { transactions: "nope" });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("bad_request");
+  });
+
+  it("a transaction push omitting optional fields applies with cost_cents 0 and nulls", async () => {
+    const { app, token, spaceId } = await setup();
+    const res = await (await push(app, token, spaceId, { transactions: [{
+      id: "018f0000-0000-7000-8000-00000000009a", source: "manual", receipt_code: null, direction: "out",
+      amount_cents: 5000, counterparty: "Test", occurred_at: "2026-09-01T10:00:00.000Z",
+      client_updated_at: "2026-09-01T10:00:00.000Z",
+    }] })).json();
+    expect(res.results[0].status).toBe("applied");
+    expect(res.results[0].row).toMatchObject({ cost_cents: 0, balance_cents: null, category_id: null, reason: null, deleted_at: null });
+  });
 });

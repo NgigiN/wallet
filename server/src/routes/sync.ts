@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { Db } from "../db/client.js";
 import type { SpaceVars } from "../middleware/space.js";
-import { pullChanges, pushChanges } from "../services/sync.js";
+import { PushValidationError, pullChanges, pushChanges } from "../services/sync.js";
 
 function intParam(raw: string | undefined, fallback: number): number {
   if (raw === undefined) return fallback;
@@ -22,7 +22,12 @@ export function syncRoutes(db: Db) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return c.json({ error: "bad_request" }, 400);
     const space = c.get("space");
     const user = c.get("user");
-    return c.json(await pushChanges(db, { spaceId: space.id, userId: user.id }, raw));
+    try {
+      return c.json(await pushChanges(db, { spaceId: space.id, userId: user.id }, raw));
+    } catch (err) {
+      if (err instanceof PushValidationError) return c.json({ error: "bad_request", message: err.message }, 400);
+      throw err;
+    }
   });
   return r;
 }
