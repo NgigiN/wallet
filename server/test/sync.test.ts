@@ -234,6 +234,56 @@ describe("sync push", () => {
     expect(res.results[0]).toMatchObject({ status: "rejected", error: "duplicate_rule", row: { id: first, match_counterparty: "naivas" } });
   });
 
+  it("rejects un-deleting a budget into a category slot another live budget has since taken, without failing the batch", async () => {
+    const { app, token, spaceId, cat } = await setup();
+    const b1 = "eeeeeee1-1111-7111-8111-111111111111";
+    const b2 = "eeeeeee2-2222-7222-8222-222222222222";
+    const catId = cat("food");
+    const create = await (await push(app, token, spaceId, {
+      budgets: [{ id: b1, category_id: catId, monthly_limit_cents: 100000, client_updated_at: "2026-09-01T11:00:00.000Z", deleted_at: null }],
+    })).json();
+    expect(create.results[0].status).toBe("applied");
+    const del = await (await push(app, token, spaceId, {
+      budgets: [{ id: b1, category_id: catId, monthly_limit_cents: 100000, client_updated_at: "2026-09-01T12:00:00.000Z", deleted_at: "2026-09-01T12:00:00.000Z" }],
+    })).json();
+    expect(del.results[0].status).toBe("applied");
+    const recreate = await (await push(app, token, spaceId, {
+      budgets: [{ id: b2, category_id: catId, monthly_limit_cents: 200000, client_updated_at: "2026-09-01T13:00:00.000Z", deleted_at: null }],
+    })).json();
+    expect(recreate.results[0].status).toBe("applied");
+    const res = await (await push(app, token, spaceId, {
+      budgets: [{ id: b1, category_id: catId, monthly_limit_cents: 300000, client_updated_at: "2026-09-01T14:00:00.000Z", deleted_at: null }],
+      transactions: [TX()],
+    })).json();
+    expect(res.results[0]).toMatchObject({ table: "budgets", status: "rejected", error: "duplicate_budget", row: { id: b2 } });
+    expect(res.results[1]).toMatchObject({ table: "transactions", status: "applied" });
+  });
+
+  it("rejects un-deleting a rule into a counterparty slot another live rule has since taken, without failing the batch", async () => {
+    const { app, token, spaceId, cat } = await setup();
+    const r1 = "fffffff1-1111-7111-8111-111111111111";
+    const r2 = "fffffff2-2222-7222-8222-222222222222";
+    const catId = cat("food");
+    const create = await (await push(app, token, spaceId, {
+      rules: [{ id: r1, match_counterparty: "Naivas", category_id: catId, client_updated_at: "2026-09-01T11:00:00.000Z", deleted_at: null }],
+    })).json();
+    expect(create.results[0].status).toBe("applied");
+    const del = await (await push(app, token, spaceId, {
+      rules: [{ id: r1, match_counterparty: "Naivas", category_id: catId, client_updated_at: "2026-09-01T12:00:00.000Z", deleted_at: "2026-09-01T12:00:00.000Z" }],
+    })).json();
+    expect(del.results[0].status).toBe("applied");
+    const recreate = await (await push(app, token, spaceId, {
+      rules: [{ id: r2, match_counterparty: "Naivas", category_id: catId, client_updated_at: "2026-09-01T13:00:00.000Z", deleted_at: null }],
+    })).json();
+    expect(recreate.results[0].status).toBe("applied");
+    const res = await (await push(app, token, spaceId, {
+      rules: [{ id: r1, match_counterparty: "Naivas", category_id: catId, client_updated_at: "2026-09-01T14:00:00.000Z", deleted_at: null }],
+      transactions: [TX()],
+    })).json();
+    expect(res.results[0]).toMatchObject({ table: "rules", status: "rejected", error: "duplicate_rule", row: { id: r2 } });
+    expect(res.results[1]).toMatchObject({ table: "transactions", status: "applied" });
+  });
+
   it("a null table field is treated as an empty list", async () => {
     const { app, token, spaceId } = await setup();
     const res = await push(app, token, spaceId, { transactions: null });

@@ -272,8 +272,11 @@ export async function pushChanges(db: Db, ctx: { spaceId: string; userId: string
       // Update path: re-pointing a known budget at a category that already has its own live
       // budget would violate `budgets_space_category_uq` and 500 the whole push. Reject the
       // row and hand back the budget that is in the way so the client can merge locally.
-      // Deletes are exempt: the partial index only covers live rows.
-      if (byId && byId.categoryId !== w.category_id && !w.deleted_at) {
+      // Deletes are exempt: the partial index only covers live rows. Also covers un-delete:
+      // if byId is currently soft-deleted and this push resurrects it (even at the same
+      // category), another live row may have taken that category slot in the meantime, so
+      // the same clash check applies.
+      if (byId && !w.deleted_at && (byId.categoryId !== w.category_id || byId.deletedAt !== null)) {
         const [clash] = await tx.select().from(budgets)
           .where(and(eq(budgets.spaceId, ctx.spaceId), eq(budgets.categoryId, w.category_id), sql`${budgets.deletedAt} is null`, sql`${budgets.id} <> ${w.id}`)).limit(1);
         if (clash) { results.push({ table: "budgets", id: w.id, status: "rejected", error: "duplicate_budget", row: toBudgetWire(clash) }); continue; }
@@ -302,8 +305,10 @@ export async function pushChanges(db: Db, ctx: { spaceId: string; userId: string
       if (!catIds.has(w.category_id)) { results.push({ table: "rules", id: w.id, status: "rejected", error: "bad_category" }); continue; }
       const normalized = w.match_counterparty.toLowerCase().replace(/\s+/g, " ");
       // Update path, same hazard as budgets above: renaming a known rule onto another live
-      // rule's counterparty would violate `rules_space_match_uq`.
-      if (byId && byId.matchCounterparty !== normalized && !w.deleted_at) {
+      // rule's counterparty would violate `rules_space_match_uq`. Also covers un-delete: a
+      // soft-deleted byId resurrected at the same counterparty can still collide with a live
+      // row that has since taken that slot.
+      if (byId && !w.deleted_at && (byId.matchCounterparty !== normalized || byId.deletedAt !== null)) {
         const [clash] = await tx.select().from(rules)
           .where(and(eq(rules.spaceId, ctx.spaceId), eq(rules.matchCounterparty, normalized), sql`${rules.deletedAt} is null`, sql`${rules.id} <> ${w.id}`)).limit(1);
         if (clash) { results.push({ table: "rules", id: w.id, status: "rejected", error: "duplicate_rule", row: toRuleWire(clash) }); continue; }
