@@ -239,7 +239,6 @@ config.local.json
 *.pem
 
 # Docker
-.dockerignore
 docker compose.override.yml
 
 # Kubernetes

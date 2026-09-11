@@ -63,21 +63,33 @@ Verification
 ### Stage 1A Backend
 | Step | Status |
 |---|---|
-| D1A.1 `server/` scaffold: Hono, Drizzle schema, migrations, BetterAuth (email+password, bearer, organization), personal-space hook | todo |
-| D1A.2 Membership middleware, client-version middleware (426), auth rate limit | todo |
-| D1A.3 Sync pull/push with merge rules (spec §7) | todo |
-| D1A.4 Category seeding on space creation | todo |
-| D1A.5 `server/Dockerfile`, `deploy/compose.yml`, backup sidecar, staging overlay; staging up on VPS :8082 | todo |
-| Decide: BetterAuth org plugin vs own spaces tables (spec §20) | todo |
+| Staging nginx vhost + Let's Encrypt cert (user sudo) | done 2026-09-11 (https://wallet-staging.samtama.lol/health → 200 healthy; cert expires 2026-12-10) |
+| D1A.1 `server/` scaffold: Hono, Drizzle schema, migrations, BetterAuth (email+password, bearer, organization), personal-space hook | done 2026-09-11 |
+| D1A.2 Membership middleware, client-version middleware (426), auth rate limit | done 2026-09-11 |
+| D1A.3 Sync pull/push with merge rules (spec §7) | done 2026-09-11 |
+| D1A.4 Category seeding on space creation | done 2026-09-11 |
+| D1A.5 `server/Dockerfile`, `deploy/compose.yml`, backup sidecar, staging overlay; staging up on VPS :8082 | done 2026-09-11 (compose project `wallet2-staging`, API on 127.0.0.1:8082; live `financial-tracker-bot` on :8080 untouched) |
+| nginx vhost `wallet-staging.samtama.lol` → 127.0.0.1:8082 + Let's Encrypt cert | blocked (needs user sudo; commands delivered) — file committed at `deploy/nginx-wallet-staging.conf`, staged on the VPS at `/tmp/nginx-wallet-staging.conf` |
+| Decide: BetterAuth org plugin vs own spaces tables (spec §20) | done 2026-09-11 (BetterAuth `organization` plugin = spaces; app tables key off `organization.id`) |
 
 Verification
-- cmd: `cd server && npm test` → record: N tests, 0 failures
-- cmd: `cd server && npm run typecheck` → clean
-- check: integration test "member of space A requesting space B → 403" exists and passes
-- check: integration test "two users push same receipt code, opposite directions → two rows; same direction → one row" passes
-- check: unit tests cover every row of spec §7.2 (create, dedupe-as-edit, immutable reject, LWW newer wins, LWW older unchanged, soft delete, bad_category)
-- cmd (VPS): `curl -s http://127.0.0.1:8082/health` → `{"status":"healthy","db":"ok",...}`
-- check: a `wallet-*.dump.age` file appears in the bucket the morning after staging goes up → record filename: ____
+- cmd: `cd server && npm test` → 2026-09-11: **13 files, 58 tests, 0 failures**
+- cmd: `cd server && npm run typecheck` → 2026-09-11: clean (exit 0)
+- check: integration test "member of space A requesting space B → 403" exists and passes → yes (`test/membership.test.ts`)
+- check: integration test "two users push same receipt code, opposite directions → two rows; same direction → one row" passes → yes (`test/sync.test.ts`)
+- check: unit tests cover every row of spec §7.2 (create, dedupe-as-edit, immutable reject, LWW newer wins, LWW older unchanged, soft delete, bad_category) → yes (`test/sync-merge.test.ts`)
+- cmd (local): `docker build -t wallet-api:local server/` then run against the test DB → `{"status":"healthy","db":"ok","version":"dev",...}`
+- cmd (VPS): `curl -s http://127.0.0.1:8082/health` → 2026-09-11: `{"status":"healthy","db":"ok","version":"staging","uptime_seconds":14,"timestamp":"2026-09-11T17:28:38.683Z"}`
+- check: a `wallet-*.dump.age` file appears in the bucket from a **manual** run → 2026-09-11: **`wallet-staging-20260911-1728.dump.age`** (34212 bytes, `r2:wallet/pg/staging/`)
+- check: a `wallet-*.dump.age` file appears in the bucket from the **scheduled** run (crond inside the backup sidecar, not a manual invocation) → 2026-09-11 **proven** with `BACKUP_CRON="* * * * *"` in `.env.staging`, sidecar recreated, then the override removed and the crontab confirmed back to `0 2 * * *`. Sidecar log:
+  ```
+  crond: USER root pid 285 cmd sh /backup.sh
+  backup ok: wallet-staging-20260911-1752.dump.age (34212 bytes)
+  ```
+  Newest scheduled file in `r2:wallet/pg/staging/`: **`wallet-staging-20260911-1752.dump.age`**, 34212 bytes (> the 10000-byte upload floor). Eight further 34212-byte minute-dumps from the same proof window are in the bucket and age out under the 30-day retention.
+- check: the size floor actually refuses a bad dump → yes: with `pg_dump` stubbed to produce nothing, `backup FAILED: … is only 200 bytes (minimum 10000); not uploading`, exit 1, nothing uploaded, temp file removed by the `trap`.
+- cmd (VPS): `docker compose … exec -T api node dist/scripts/purge-tombstones.js` → `purged 0 transactions/budgets/rules/categories tombstones`; with `DATABASE_URL` unset it exits 2 with a message.
+- check: weekly tombstone purge documented as a host cron in `deploy/VPS_SETUP.md` → yes (documented with `>> deploy/purge.log 2>&1`, not installed)
 
 ### Stage 1B Web PWA
 | Step | Status |
@@ -207,7 +219,7 @@ Verification
 | Branch protection enabled on `main`/`v2` | Phase 0 | done |
 | Android keystore + secrets in GitHub | Phase 1D | pending |
 | Sentry DSNs (server, web, android) | Phase 1A | done |
-| VPS sudo session for staging nginx vhost | Phase 1A | pending |
+| VPS sudo session for staging nginx vhost | Phase 1A | pending — exact command block in `deploy/nginx-wallet-staging.conf` header; file staged on the VPS at `/tmp/nginx-wallet-staging.conf` |
 | Resend API key + verified sender | Phase 2 | pending |
 | Firebase: service account JSON, `google-services.json`, web config + VAPID key | Phase 3 | pending |
 | Uptime Kuma monitor on new `/health` (user adds at cutover) | Phase 1C | pending |
@@ -219,3 +231,6 @@ Verification
 - 2026-09-11: spec approved. Decisions: same-origin (`wallet.samtama.lol` serves PWA + `/api`), Postgres container with named volume. `v2` pushed; branch protection applied to `main` and `v2`. `age` keypair generated on the laptop. Uptime Kuma replaces the external monitor. R2 bucket `wallet` identified; API token still needed. Sentry explained to user; DSNs pending.
 - 2026-09-11: PR #1 opened (CI + tag deploys + docs). Phase 0 + 1A plan written (12 tasks, TDD). Spec §5.2 amended: `client_updated_at` on all synced tables.
 - 2026-09-11: PR #1 merged. Phase 0 complete except the staging-nginx sudo step (moved to 1A Task 12). R2 remote live, SQLite backed up encrypted and restore-verified. Sentry DSNs and R2 token received (kept out of repo). Execution: subagent-driven. Staging hostname: `wallet-staging.samtama.lol` (user's default accepted). PRs self-merged on green CI.
+- 2026-09-11: Stage 1A backend complete (Tasks 1–12). 58 tests green, typecheck clean. `server/Dockerfile` (multi-stage node:22-alpine, tini, non-root), `deploy/compose.yml` + `compose.staging.yml`, encrypted backup sidecar (pg_dump → age → rclone → R2), tombstone purge script. Staging live on the VPS at 127.0.0.1:8082 (`wallet2-staging`), `/health` healthy with `version=staging`, Sentry server DSN wired. First encrypted backup in R2: `wallet-staging-20260911-1728.dump.age`. Remaining 1A item: the nginx vhost for `wallet-staging.samtama.lol` needs one sudo session from the user.
+- 2026-09-11: Task 12 review fix round 1. Backups made trustworthy: `set -euo pipefail` + `trap`, a 10000-byte upload floor, monthlies uploaded from the local dump instead of a remote→remote copy, and the sidecar now writes `/etc/backup.env` (root-only) before starting crond because busybox crond gives its jobs a bare environment — the scheduled path was then proven end to end via `BACKUP_CRON`. Tombstone purge runs in one transaction, logs per table, guards `DATABASE_URL`, and skips category tombstones still referenced by a transaction/budget/rule. `env_file` is now a single `${ENV_FILE:-.env}` entry per environment so a future prod `.env` cannot leak into staging.
+- 2026-09-11: staging live over HTTPS. Gotcha: `*.samtama.lol` is a proxied wildcard plus a Cloudflare redirect rule to the apex, so `dig` shows every subdomain as existing; a NEW subdomain needs an explicit A record AND an exclusion from the redirect rule before certbot's HTTP-01 challenge can reach the origin. Phase 1A: all 12 tasks complete, 64 server tests, final review parked 2 residuals (see PR).

@@ -1,0 +1,72 @@
+name: wallet2
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: wallet
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      POSTGRES_DB: wallet
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wallet -d wallet"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  api:
+    build:
+      context: ../server
+      dockerfile: Dockerfile
+      args:
+        APP_VERSION: ${APP_VERSION:-dev}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Exactly one env file per environment — compose CONCATENATES env_file lists
+    # across overlays, so an overlay entry would leak the other environment's
+    # keys in. Staging sets ENV_FILE=.env.staging inside .env.staging itself.
+    env_file: ${ENV_FILE:-.env}
+    environment:
+      DATABASE_URL: postgres://wallet:${POSTGRES_PASSWORD}@postgres:5432/wallet
+    ports:
+      - "127.0.0.1:${API_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  backup:
+    image: alpine:3.20
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      AGE_PUBLIC_KEY: ${AGE_PUBLIC_KEY:?set in .env}
+      RCLONE_REMOTE: ${RCLONE_REMOTE:-r2:wallet/pg}
+      BACKUP_PREFIX: ${BACKUP_PREFIX:-prod}
+    volumes:
+      - ./backup.sh:/backup.sh:ro
+      - ${RCLONE_CONF:-/home/deploy/.config/rclone/rclone.conf}:/root/.config/rclone/rclone.conf:ro
+    # busybox crond does not pass the container environment to its jobs, so the
+    # vars backup.sh needs are written to a root-only /etc/backup.env first.
+    # BACKUP_CRON exists so the scheduled path can be proven on staging
+    # (BACKUP_CRON="* * * * *" for one run, then back to the default).
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        apk add --no-cache postgresql16-client age rclone >/dev/null
+        env | grep -E '^(PGPASSWORD|AGE_PUBLIC_KEY|RCLONE_REMOTE|BACKUP_PREFIX)=' > /etc/backup.env
+        chmod 600 /etc/backup.env
+        echo '${BACKUP_CRON:-0 2 * * *} sh /backup.sh' | crontab -
+        exec crond -f -l 2 -L /dev/stderr
+
+volumes:
+  pgdata:

@@ -1,0 +1,10 @@
+name: wallet2-staging
+services:
+  # The api's env file is selected by ENV_FILE inside .env.staging, not here —
+  # compose concatenates env_file lists across overlays.
+  backup:
+    environment:
+      BACKUP_PREFIX: staging
+volumes:
+  pgdata:
+    name: wallet2-staging-pgdata
