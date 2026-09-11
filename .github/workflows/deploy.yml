@@ -1,10 +1,11 @@
 name: Deploy to Server
 
+# Production deploy runs only on version tags (or manually). Tests run on every
+# PR in ci.yml; this workflow re-runs them as a gate before deploying.
 on:
   push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
 
 jobs:
   test:
@@ -26,7 +27,6 @@ jobs:
   deploy:
     needs: test
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     concurrency:
       group: deploy-${{ github.ref }}
       cancel-in-progress: false

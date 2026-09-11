@@ -98,7 +98,6 @@ dist
 
 # Gatsby files
 .cache/
-public
 
 # Storybook build outputs
 .out
@@ -233,8 +232,6 @@ config.local.yaml
 config.local.yml
 config.local.json
 
-# Database migrations (if you add them later)
-migrations/
 
 # SSL certificates
 *.crt
@@ -266,7 +263,8 @@ docker compose.override.yml
 # Local development tools
 .local/
 
-docs/
+docs/*
+!docs/superpowers/
 
 android/local.properties
 android/.gradle/
