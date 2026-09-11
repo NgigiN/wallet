@@ -16,7 +16,9 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/drizzle ./drizzle
 COPY --from=build /app/package.json ./
-# The web bundle is copied in by the compose build context (web/dist → /app/public); an empty dir is fine for API-only runs.
+# Phase 1B adds the web bundle by copying web/dist into server/public before the
+# image build (the compose build context stays ../server); an empty dir is fine
+# for API-only runs.
 RUN mkdir -p /app/public
 ARG APP_VERSION=dev
 ENV APP_VERSION=$APP_VERSION

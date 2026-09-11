@@ -25,11 +25,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    env_file:
-      # `.env` is the production file; the staging overlay appends `.env.staging`,
-      # whose values win. Optional so the staging stack does not need a `.env`.
-      - path: .env
-        required: false
+    # Exactly one env file per environment — compose CONCATENATES env_file lists
+    # across overlays, so an overlay entry would leak the other environment's
+    # keys in. Staging sets ENV_FILE=.env.staging inside .env.staging itself.
+    env_file: ${ENV_FILE:-.env}
     environment:
       DATABASE_URL: postgres://wallet:${POSTGRES_PASSWORD}@postgres:5432/wallet
     ports:
@@ -54,9 +53,20 @@ services:
     volumes:
       - ./backup.sh:/backup.sh:ro
       - ${RCLONE_CONF:-/home/deploy/.config/rclone/rclone.conf}:/root/.config/rclone/rclone.conf:ro
-    command: >
-      sh -c "apk add --no-cache postgresql16-client age rclone >/dev/null &&
-             echo '0 2 * * * sh /backup.sh' | crontab - && crond -f -l 2"
+    # busybox crond does not pass the container environment to its jobs, so the
+    # vars backup.sh needs are written to a root-only /etc/backup.env first.
+    # BACKUP_CRON exists so the scheduled path can be proven on staging
+    # (BACKUP_CRON="* * * * *" for one run, then back to the default).
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        apk add --no-cache postgresql16-client age rclone >/dev/null
+        env | grep -E '^(PGPASSWORD|AGE_PUBLIC_KEY|RCLONE_REMOTE|BACKUP_PREFIX)=' > /etc/backup.env
+        chmod 600 /etc/backup.env
+        echo '${BACKUP_CRON:-0 2 * * *} sh /backup.sh' | crontab -
+        exec crond -f -l 2 -L /dev/stderr
 
 volumes:
   pgdata:

@@ -208,9 +208,15 @@ curl -s http://127.0.0.1:8082/health      # → {"status":"healthy","db":"ok","v
 ```
 
 `deploy/.env.staging` is gitignored and never committed. It holds
-`POSTGRES_PASSWORD`, `BETTER_AUTH_SECRET`, `SENTRY_DSN`, `API_PORT=8082`, and
-the `age` **public** key used to encrypt backups (the private key lives only on
-the laptop at `~/.config/wallet-backup/age-key.txt`).
+`POSTGRES_PASSWORD`, `BETTER_AUTH_SECRET`, `SENTRY_DSN`, `API_PORT=8082`,
+`ENV_FILE=.env.staging`, and the `age` **public** key used to encrypt backups
+(the private key lives only on the laptop at
+`~/.config/wallet-backup/age-key.txt`).
+
+`ENV_FILE` is load-bearing: the api service declares `env_file: ${ENV_FILE:-.env}`,
+a single entry, because compose **concatenates** `env_file` lists across
+overlays — an entry in `compose.staging.yml` would pull a future production
+`deploy/.env` into the staging container as well.
 
 ### nginx vhost (needs sudo — see `deploy/nginx-wallet-staging.conf`)
 
@@ -220,12 +226,27 @@ header of `deploy/nginx-wallet-staging.conf`.
 
 ### Backups
 
-The `backup` sidecar installs `postgresql16-client`, `age` and `rclone` on start
-and runs `crond` with `0 2 * * * sh /backup.sh` (02:00 UTC). Each run does
-`pg_dump -Fc | age -r $AGE_PUBLIC_KEY` and `rclone copy` to
-`r2:wallet/pg/<prefix>/` (`staging` or `prod`), keeps 30 days of dailies, copies
-the 1st-of-month dump to `…-monthly/` and keeps those 190 days. Restore drill:
-`deploy/restore.md`.
+The `backup` sidecar installs `postgresql16-client`, `age` and `rclone` on start,
+writes the variables `backup.sh` needs to a root-only `/etc/backup.env` (busybox
+`crond` does **not** pass the container environment to its jobs), then runs
+`crond` with `${BACKUP_CRON:-0 2 * * *} sh /backup.sh` (02:00 UTC by default).
+Each run does `pg_dump -Fc | age -r $AGE_PUBLIC_KEY`, refuses to upload anything
+under 10000 bytes, `rclone copy`s to `r2:wallet/pg/<prefix>/` (`staging` or
+`prod`), keeps 30 days of dailies, uploads the 1st-of-month dump a second time to
+`…-monthly/` and keeps those 190 days. `set -euo pipefail` plus a `trap` means a
+failed `pg_dump` fails the job and never leaves a temp file behind. Restore
+drill: `deploy/restore.md`.
+
+To prove the *scheduled* path (not just a manual run), put `BACKUP_CRON=* * * * *`
+in `.env.staging`, recreate the sidecar, wait a minute, check the bucket, then
+remove the override and recreate again:
+
+```bash
+cd /home/deploy/opt/wallet/deploy
+docker compose --env-file .env.staging -f compose.yml -f compose.staging.yml up -d --force-recreate backup
+docker logs wallet2-staging-backup-1 | tail       # crond: USER root pid N cmd sh /backup.sh
+~/.local/bin/rclone ls r2:wallet/pg/staging/
+```
 
 Run one on demand:
 
@@ -243,8 +264,19 @@ the backup sidecar (no docker socket there), so it goes in the **deploy user's**
 crontab (`crontab -e`), Sundays at 03:00:
 
 ```cron
-0 3 * * 0 cd /home/deploy/opt/wallet/deploy && docker compose --env-file .env.staging -f compose.yml -f compose.staging.yml exec -T api node dist/scripts/purge-tombstones.js
+0 3 * * 0 cd /home/deploy/opt/wallet/deploy && docker compose --env-file .env.staging -f compose.yml -f compose.staging.yml exec -T api node dist/scripts/purge-tombstones.js >> /home/deploy/opt/wallet/deploy/purge.log 2>&1
 ```
 
 For production, swap the `--env-file`/overlay for the prod pair:
-`cd /home/deploy/opt/wallet/deploy && docker compose --env-file .env -f compose.yml exec -T api node dist/scripts/purge-tombstones.js`.
+`cd /home/deploy/opt/wallet/deploy && docker compose --env-file .env -f compose.yml exec -T api node dist/scripts/purge-tombstones.js >> /home/deploy/opt/wallet/deploy/purge.log 2>&1`.
+
+The script deletes in one transaction (all-or-nothing), logs a count per table,
+exits 2 if `DATABASE_URL` is unset, and skips category tombstones that are still
+referenced by a transaction, budget or rule — those FKs have no `ON DELETE`
+action, so purging a referenced category would abort the whole run.
+
+**Caveat:** a device that has been offline for more than 90 days can miss a
+tombstone entirely — it pulls from its stored cursor and the delete row is gone,
+so the row reappears locally. The sync protocol has no stale-cursor guard yet;
+until it does, such a device needs a full resync (clear local state and pull
+from `since=0`).
