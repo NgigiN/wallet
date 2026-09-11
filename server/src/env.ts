@@ -13,6 +13,7 @@ const schema = z.object({
   LEGACY_SPACE_ID: z.string().optional(),
   STATIC_DIR: z.string().default("./public"),
   APP_VERSION: z.string().default("dev"),
+  SENTRY_DSN: z.string().url().optional(),
 });
 
 export type Env = z.infer<typeof schema>;

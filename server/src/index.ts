@@ -1,4 +1,5 @@
 import { serve } from "@hono/node-server";
+import * as Sentry from "@sentry/node";
 import { sql } from "drizzle-orm";
 import { createApp } from "./app.js";
 import { createAuth } from "./auth.js";
@@ -8,6 +9,11 @@ import { loadEnv } from "./env.js";
 import { logger } from "./logger.js";
 
 const env = loadEnv();
+
+if (env.SENTRY_DSN) {
+  Sentry.init({ dsn: env.SENTRY_DSN, release: env.APP_VERSION, environment: env.NODE_ENV });
+}
+
 const { db, pool } = createDb(env.DATABASE_URL);
 await runMigrations(db);
 logger.info("migrations applied");
