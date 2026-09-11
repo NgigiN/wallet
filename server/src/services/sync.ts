@@ -124,6 +124,25 @@ export const pushBody = z.object({
 });
 
 export type PushResult = { table: "transactions" | "categories" | "budgets" | "rules"; id: string; status: "applied" | "unchanged" | "rejected"; error?: string; message?: string; row?: unknown };
+/**
+ * Client obligations for the push response (the protocol depends on all three):
+ *
+ * 1. `cursor` is the global change sequence head at commit time, not a "you are caught up"
+ *    marker. It counts every space's writes, and it moves for concurrent pushes by other
+ *    devices in this space, so a client must NOT store it as its own sync cursor. After
+ *    every push, pull from the cursor the client already had stored, apply that page, and
+ *    only then store the *pull's* cursor. The push cursor is a pull TARGET: keep pulling
+ *    while the stored cursor is behind it (and while `more` is true).
+ * 2. When a result's `row.id` differs from the `id` the client sent (`result.id`), the
+ *    server merged the push into an existing row — receipt-code dedupe for transactions,
+ *    category/counterparty dedupe for budgets and rules. The client must adopt the server's
+ *    id for that row and discard its own local duplicate, or it will keep re-pushing a row
+ *    that the server will keep folding into the same target.
+ * 3. A push carries at most MAX_PUSH_ROWS rows summed across the four arrays; a larger
+ *    batch is rejected whole with 400 `{ "error": "batch_too_large", "max": 1000 }` and
+ *    nothing is applied. Clients chunk their dirty rows into batches of at most that size
+ *    and push the chunks sequentially, pulling after each one.
+ */
 export type PushResponse = { results: PushResult[]; cursor: number };
 
 // A batch whose shape doesn't match PushBody at all (e.g. a table field that's neither an

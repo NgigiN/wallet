@@ -369,6 +369,28 @@ on every `/api/v2/*` route. Both clients show a blocking "update needed"
 screen on 426. This exists from the first v2 release so the protocol can
 change later without corrupting data.
 
+### 7.5 Client obligations
+
+Three rules the clients must implement for the protocol to converge:
+
+- **The push `cursor` is a pull target, never a "caught up" marker.** It is the
+  global change-sequence head at commit time: it counts other spaces' writes and
+  moves for concurrent pushes by other devices in this space. A client never
+  stores it as its own sync cursor. After every push it pulls from its own
+  stored cursor, applies the page, and only then stores the *pull's* cursor,
+  looping while the stored cursor is behind the push cursor (and while `more`).
+- **Adopt the server id when it differs.** When a result's `row.id` is not the
+  `id` the client sent, the server folded the push into an existing row
+  (receipt-code dedupe for transactions, category dedupe for budgets,
+  counterparty dedupe for rules). The client must re-key its local row to the
+  server id and discard its local duplicate, or it will re-push a row the server
+  keeps folding into the same target.
+- **Chunk pushes.** A push carries at most 1000 rows summed across the four
+  arrays; a larger batch is rejected whole with
+  `400 { "error": "batch_too_large", "max": 1000 }` and nothing is applied.
+  Clients split dirty rows into chunks of at most 1000 and push them
+  sequentially, pulling after each chunk.
+
 ## 8. Transaction lifecycle
 
 ### 8.1 Capture (Android)
