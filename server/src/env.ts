@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+const blankAsUndefined = (v: unknown) => (typeof v === "string" && v.trim() === "" ? undefined : v);
+
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().default(8080),
@@ -9,11 +11,11 @@ const schema = z.object({
   TRUSTED_ORIGINS: z.string().default("https://wallet.samtama.lol,http://localhost:5173"),
   MIN_CLIENT_ANDROID: z.string().default("0.0.0"),
   MIN_CLIENT_WEB: z.string().default("0.0.0"),
-  LEGACY_API_TOKEN: z.string().optional(),
-  LEGACY_SPACE_ID: z.string().optional(),
+  LEGACY_API_TOKEN: z.preprocess(blankAsUndefined, z.string().optional()),
+  LEGACY_SPACE_ID: z.preprocess(blankAsUndefined, z.string().optional()),
   STATIC_DIR: z.string().default("./public"),
   APP_VERSION: z.string().default("dev"),
-  SENTRY_DSN: z.string().url().optional(),
+  SENTRY_DSN: z.preprocess(blankAsUndefined, z.string().url().optional()),
 });
 
 export type Env = z.infer<typeof schema>;
