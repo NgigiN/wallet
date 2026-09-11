@@ -25,7 +25,8 @@ export function syncRoutes(db: Db) {
     try {
       return c.json(await pushChanges(db, { spaceId: space.id, userId: user.id }, raw));
     } catch (err) {
-      if (err instanceof PushValidationError) return c.json({ error: "bad_request", message: err.message }, 400);
+      // `extra` carries the rest of the body the error wants (default: `{ message }`).
+      if (err instanceof PushValidationError) return c.json({ error: err.code, ...err.extra }, 400);
       throw err;
     }
   });

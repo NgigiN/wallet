@@ -130,7 +130,24 @@ export type PushResponse = { results: PushResult[]; cursor: number };
 // array nor null/absent) is a malformed request, not a malformed row: it can't be reported
 // per-row because we don't have rows to iterate. The route maps this to a 400, distinct from
 // per-row `status: "rejected"` results for malformed items within an otherwise-valid batch.
-export class PushValidationError extends Error {}
+export class PushValidationError extends Error {
+  readonly code: string;
+  readonly extra: Record<string, unknown>;
+  constructor(message: string, opts: { code?: string; extra?: Record<string, unknown> } = {}) {
+    super(message);
+    // The route emits `{ error: code, ...extra }`. The default reproduces the historical
+    // `{ error: "bad_request", message }` body; a caller that wants a different 400 body
+    // (see MAX_PUSH_ROWS below) supplies both.
+    this.code = opts.code ?? "bad_request";
+    this.extra = opts.extra ?? { message };
+  }
+}
+
+// One push is one Postgres transaction holding the space's advisory lock, so an unbounded
+// batch blocks every other device in the space for as long as it takes to apply. Clients
+// chunk at this size; the server refuses anything larger outright rather than starting work
+// it would rather not finish.
+export const MAX_PUSH_ROWS = 1000;
 
 const nextSeq = sql<number>`nextval('change_seq')`;
 
@@ -184,6 +201,10 @@ export async function pushChanges(db: Db, ctx: { spaceId: string; userId: string
   const parsedBody = pushBody.safeParse(raw);
   if (!parsedBody.success) throw new PushValidationError(parsedBody.error.issues[0]?.message ?? "invalid push body");
   const body = parsedBody.data;
+  const total = body.transactions.length + body.categories.length + body.budgets.length + body.rules.length;
+  if (total > MAX_PUSH_ROWS) {
+    throw new PushValidationError(`push of ${total} rows exceeds the ${MAX_PUSH_ROWS}-row cap`, { code: "batch_too_large", extra: { max: MAX_PUSH_ROWS } });
+  }
   const results: PushResult[] = [];
 
   const cursor = await db.transaction(async (tx) => {

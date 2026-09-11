@@ -250,6 +250,14 @@ describe("sync push", () => {
     expect(body.error).toBe("bad_request");
   });
 
+  it("rejects a batch over the row cap with 400 batch_too_large", async () => {
+    const { app, token, spaceId } = await setup();
+    const rows = Array.from({ length: 1001 }, (_, i) => TX({ id: `018f0000-0000-7000-8000-${String(i).padStart(12, "0")}`, receipt_code: `T${i}` }));
+    const res = await push(app, token, spaceId, { transactions: rows });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "batch_too_large", max: 1000 });
+  });
+
   it("a transaction push omitting optional fields applies with cost_cents 0 and nulls", async () => {
     const { app, token, spaceId } = await setup();
     const res = await (await push(app, token, spaceId, { transactions: [{
