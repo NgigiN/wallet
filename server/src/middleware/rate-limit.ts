@@ -20,7 +20,13 @@ export function rateLimit(opts: Opts): MiddlewareHandler {
   };
 }
 
+// Header order is trust order, and only nginx is trusted: it overwrites both `X-Real-IP`
+// and `CF-Connecting-IP` with `$remote_addr` on every proxied request (see
+// deploy/nginx-wallet-staging.conf), so a client that sends either header cannot pick its
+// own rate-limit bucket. `cf-connecting-ip` stays as a fallback for a deployment that
+// fronts the app with Cloudflare and no rewriting proxy; `x-forwarded-for` is last because
+// nginx appends to whatever the client sent, so its first element is client-controlled.
 export function clientIp(c: Context): string {
-  return c.req.header("cf-connecting-ip") ?? c.req.header("x-real-ip")
+  return c.req.header("x-real-ip") ?? c.req.header("cf-connecting-ip")
     ?? c.req.header("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
 }
