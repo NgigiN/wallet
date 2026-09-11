@@ -1,18 +1,31 @@
 import { serve } from "@hono/node-server";
+import { sql } from "drizzle-orm";
 import { createApp } from "./app.js";
+import { createDb } from "./db/client.js";
+import { runMigrations } from "./db/migrate.js";
 import { loadEnv } from "./env.js";
 import { logger } from "./logger.js";
 
 const env = loadEnv();
-const app = createApp({ env, healthDb: async () => true });
+const { db, pool } = createDb(env.DATABASE_URL);
+await runMigrations(db);
+logger.info("migrations applied");
+
+const app = createApp({
+  env,
+  healthDb: async () => {
+    const r = await db.execute(sql`select 1 as ok`);
+    return (r.rows[0] as any)?.ok === 1;
+  },
+});
 
 const server = serve({ fetch: app.fetch, port: env.PORT }, (info) => {
-  logger.info({ port: info.port }, "wallet server listening");
+  logger.info({ port: info.port, version: env.APP_VERSION }, "wallet server listening");
 });
 
 for (const sig of ["SIGINT", "SIGTERM"] as const) {
   process.on(sig, () => {
     logger.info({ sig }, "shutting down");
-    server.close(() => process.exit(0));
+    server.close(async () => { await pool.end(); process.exit(0); });
   });
 }
