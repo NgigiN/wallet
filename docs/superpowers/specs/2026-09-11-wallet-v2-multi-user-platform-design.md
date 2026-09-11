@@ -144,6 +144,7 @@ Every application table that syncs carries the same four columns:
 | `created_at` | `timestamptz not null default now()` | |
 | `updated_at` | `timestamptz not null default now()` | Server clock, set on every write. |
 | `deleted_at` | `timestamptz null` | Soft delete. Rows are never hard-deleted while any client might hold a cursor older than the delete. A weekly job hard-deletes tombstones older than 90 days. |
+| `client_updated_at` | `timestamptz not null` | Client wall clock at its last edit. Last-writer-wins key for every synced table (amended 2026-09-11 by the Phase 1A plan so categories, budgets, and rules merge the same way transactions do). |
 
 `change_seq` is a single global Postgres sequence shared by all syncing tables.
 Sync clients only ever compare `seq` values, so a single sequence keeps the

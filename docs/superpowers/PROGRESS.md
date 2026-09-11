@@ -51,10 +51,10 @@ Verification
 |---|---|
 | Sentry projects created (server, web, android); DSNs received | blocked (user) |
 | Spec reviewed and approved by user | done 2026-09-11 (same-origin hostname; Postgres as a container with named volume) |
-| Phase 1 implementation plan written (writing-plans skill) | todo |
+| Phase 1 implementation plan written (writing-plans skill) | done 2026-09-11 for Phase 0 remainder + 1A (`plans/2026-09-11-wallet-v2-phase0-and-1a-backend.md`); 1B/1C/1D plans written after 1A ships |
 
 Verification
-- check: `docs/superpowers/plans/2026-09-XX-wallet-v2-phase-1.md` exists and user has read it
+- check: `docs/superpowers/plans/2026-09-11-wallet-v2-phase0-and-1a-backend.md` exists and user has read it
 
 ---
 
@@ -217,3 +217,4 @@ Verification
 - 2026-09-11: spec drafted, `v2` branch created, tracker created. Awaiting spec review.
 - 2026-09-11: VPS survey. `sync.samtama.lol` is already taken (Obsidian CouchDB, port 5984), so the API cannot use it. `wallet.samtama.lol` proxies only the Go container with an API-only CSP. Uptime Kuma already runs at `status.samtama.lol` (Phase 4 monitor need is covered). Host PostgreSQL 16.15 is installed natively on 127.0.0.1:5432. Root disk is plain ext4, no LUKS (spec §15.5 gap confirmed). Live SQLite holds 74 rows dated 2026-08-31 onward; pre-Aug-31 Discord history is not in the file.
 - 2026-09-11: spec approved. Decisions: same-origin (`wallet.samtama.lol` serves PWA + `/api`), Postgres container with named volume. `v2` pushed; branch protection applied to `main` and `v2`. `age` keypair generated on the laptop. Uptime Kuma replaces the external monitor. R2 bucket `wallet` identified; API token still needed. Sentry explained to user; DSNs pending.
+- 2026-09-11: PR #1 opened (CI + tag deploys + docs). Phase 0 + 1A plan written (12 tasks, TDD). Spec §5.2 amended: `client_updated_at` on all synced tables.
