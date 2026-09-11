@@ -10,20 +10,30 @@ import { logger } from "./logger.js";
 import { requireClientVersion } from "./middleware/client-version.js";
 import { clientIp, rateLimit } from "./middleware/rate-limit.js";
 import { requireSession, type SessionVars } from "./middleware/session.js";
+import type { Space } from "./middleware/space.js";
 import { healthRoutes } from "./routes/health.js";
 import { meRoutes } from "./routes/me.js";
 import { spaceRoutes } from "./routes/spaces.js";
 
 export type AppDeps = { env: Env; db: Db; auth: Auth; healthDb: () => Promise<boolean> };
 
+// The root app sees requests both before and after the session/space middleware have run,
+// so `user` and `space` are optional here; the sub-apps keep their own non-optional types.
+type AppVars = Partial<SessionVars> & { space?: Space; requestId: string };
+
 export function createApp(deps: AppDeps) {
-  const app = new Hono();
+  const app = new Hono<{ Variables: AppVars }>();
 
   app.use("*", async (c, next) => {
+    // Set before `next()` so it is already a prepared header when a downstream handler (or
+    // onError) builds the response: an error thrown by `next()` skips everything below.
+    const requestId = crypto.randomUUID();
+    c.set("requestId", requestId);
+    c.header("X-Request-Id", requestId);
     const start = Date.now();
     await next();
     if (deps.env.NODE_ENV !== "test") {
-      logger.info({ method: c.req.method, path: c.req.path, status: c.res.status, ms: Date.now() - start }, "req");
+      logger.info({ requestId, method: c.req.method, path: c.req.path, status: c.res.status, ms: Date.now() - start }, "req");
     }
   });
 
@@ -54,8 +64,18 @@ export function createApp(deps: AppDeps) {
   });
 
   app.onError((err, c) => {
-    logger.error({ err, path: c.req.path }, "unhandled");
-    Sentry.captureException(err);
+    const requestId = c.get("requestId");
+    logger.error({ err, requestId, path: c.req.path }, "unhandled");
+    // Tag only what ties the event back to a log line and a tenant — no request body, no
+    // headers, no row values.
+    Sentry.withScope((scope) => {
+      scope.setTag("request_id", requestId);
+      const user = c.get("user");
+      if (user) scope.setUser({ id: user.id });
+      const space = c.get("space");
+      if (space) scope.setTag("space_id", space.id);
+      Sentry.captureException(err);
+    });
     return c.json({ error: "internal" }, 500);
   });
   return app;
