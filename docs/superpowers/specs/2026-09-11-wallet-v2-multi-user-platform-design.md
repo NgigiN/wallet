@@ -156,7 +156,6 @@ cursor total-ordered across tables.
 | `space_id` | `text pk fk organization.id` | |
 | `timezone` | `text not null default 'Africa/Nairobi'` | Used for day/week/month bucketing in server-side stats and budget periods. |
 | `week_starts_on` | `smallint not null default 1` | ISO Monday. |
-| `min_client_version` | (not here; global, see 11.4) | |
 
 **`categories`**
 
@@ -458,8 +457,8 @@ imported.
     column during migration, backfill `category_id` from the synced
     categories table on first sync, then drop in migration 3 → 4 one release
     later.
-  - New tables `categories`, `rules`; `budgets` gets `category_id` and loses
-    the alert-state columns.
+  - New tables `categories`, `rules`; `budgets` gets `category_id`. The local
+    alert-state columns stay until Phase 3 (D3.5) removes local alerting.
   - Amounts stay `Double` in Room for now; the sync layer converts to/from
     cents at the wire boundary with rounding to the nearest cent.
 - **Sync v2 client** in `sync/`: replaces `Sync.pushAll` + `Hydrate.pull`
@@ -814,7 +813,7 @@ of effort. Each deliverable is a PR (or a recorded manual action) tracked in
 | D3.2 | Space switcher on both clients; sync per space; personal + shared. | E2E. |
 | D3.3 | Partner-transfer linking (8.3) and stats exclusion. | Unit + integration tests with two users pushing the same receipt code. |
 | D3.4 | Firebase project, FCM on server, device token registration, budget alerts and untagged reminder sent server-side; web push in installed PWA. | Manual: alert received on Android and on an installed PWA. |
-| D3.5 | Local Android budget alert code removed. | PR merged; tests updated. |
+| D3.5 | Local Android budget alert code and the local 20:00 reminder worker removed (both now server-side). | PR merged; tests updated. |
 
 ### Phase 4 — Distribution, compliance, unknown sources (2026-11-06 → 2026-11-20)
 

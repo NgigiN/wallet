@@ -161,7 +161,7 @@ Verification
 | D3.2 Space switcher on both clients | todo |
 | D3.3 Partner-transfer linking + stats exclusion | todo |
 | D3.4 Firebase: server FCM, device tokens, server-side budget alerts + untagged reminder, web push | blocked (Firebase project) |
-| D3.5 Remove local Android budget alert code | todo |
+| D3.5 Remove local Android budget alert code and reminder worker | todo |
 
 Verification
 - check: e2e with two accounts: invite → accept → both see the same transaction
