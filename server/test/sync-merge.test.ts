@@ -28,13 +28,27 @@ describe("mergeTransaction", () => {
   it("rejects invalid amount and direction", () => {
     expect(mergeTransaction(null, incoming({ amountCents: 0 }), ctx)).toMatchObject({ action: "rejected", error: "invalid" });
     expect(mergeTransaction(null, incoming({ direction: "sideways" as any }), ctx)).toMatchObject({ action: "rejected", error: "invalid" });
+    expect(mergeTransaction(null, incoming({ amountCents: 1.5 }), ctx)).toMatchObject({ action: "rejected", error: "invalid" });
+    expect(mergeTransaction(null, incoming({ amountCents: -100 }), ctx)).toMatchObject({ action: "rejected", error: "invalid" });
+  });
+  it("rejects blank or whitespace counterparty", () => {
+    expect(mergeTransaction(null, incoming({ counterparty: "   " }), ctx)).toMatchObject({ action: "rejected", error: "invalid" });
+    expect(mergeTransaction(null, incoming({ counterparty: "" }), ctx)).toMatchObject({ action: "rejected", error: "invalid" });
   });
   it("rejects unknown category", () => {
     expect(mergeTransaction(null, incoming({ categoryId: "33333333-3333-7333-8333-333333333333" }), ctx)).toMatchObject({ action: "rejected", error: "bad_category" });
   });
   it("rejects edits to immutable fields on parsed rows", () => {
-    const r = mergeTransaction(existing(), incoming({ amountCents: 1, clientUpdatedAt: t2 }), ctx);
+    const ex = existing();
+    const r = mergeTransaction(ex, incoming({ amountCents: 1, clientUpdatedAt: t2 }), ctx);
     expect(r).toMatchObject({ action: "rejected", error: "immutable" });
+    expect((r as any).row).toEqual(ex);
+  });
+  it("rejects edits to occurredAt (Date comparison by value) on parsed rows", () => {
+    const ex = existing();
+    const r = mergeTransaction(ex, incoming({ occurredAt: t2, clientUpdatedAt: t2 }), ctx);
+    expect(r).toMatchObject({ action: "rejected", error: "immutable" });
+    expect((r as any).row).toEqual(ex);
   });
   it("allows amount/counterparty/occurredAt edits on manual rows", () => {
     const r = mergeTransaction(existing({ source: "manual", receiptCode: null }), incoming({ source: "manual", receiptCode: null, amountCents: 1234, counterparty: "Cash", clientUpdatedAt: t2 }), ctx);
