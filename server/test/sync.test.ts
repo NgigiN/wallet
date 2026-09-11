@@ -44,4 +44,21 @@ describe("sync pull", () => {
     expect(rest.categories).toHaveLength(4);
     expect(rest.more).toBe(false);
   });
+
+  it("clamps limit=0 to 1 rather than falling back to the default", async () => {
+    const { app, token, spaceId } = await setup();
+    const res = await app.request(`/api/v2/spaces/${spaceId}/sync?since=0&limit=0`, authed(token));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.categories).toHaveLength(1);
+    expect(body.more).toBe(true);
+  });
+
+  it("treats a negative since as 0", async () => {
+    const { app, token, spaceId } = await setup();
+    const res = await app.request(`/api/v2/spaces/${spaceId}/sync?since=-5`, authed(token));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.categories).toHaveLength(7);
+  });
 });
