@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { categories, member, organization, spaceSettings } from "../src/db/schema.js";
+import { seedCategories } from "../src/services/categories.js";
 import { makeApp, testDb } from "./setup.js";
 import { signUp } from "./helpers.js";
 
@@ -24,5 +25,20 @@ describe("personal space", () => {
 
     const settings = await testDb.select().from(spaceSettings).where(eq(spaceSettings.spaceId, org.id));
     expect(settings[0].timezone).toBe("Africa/Nairobi");
+  });
+
+  it("is idempotent: reseeding an existing space leaves exactly 7 categories and 1 settings row", async () => {
+    const app = makeApp();
+    const { userId } = await signUp(app, "idempotent@example.com");
+    const [membership] = await testDb.select().from(member).where(eq(member.userId, userId));
+    const spaceId = membership.organizationId;
+
+    await seedCategories(testDb, spaceId);
+
+    const cats = await testDb.select().from(categories).where(eq(categories.spaceId, spaceId));
+    expect(cats).toHaveLength(7);
+
+    const settings = await testDb.select().from(spaceSettings).where(eq(spaceSettings.spaceId, spaceId));
+    expect(settings).toHaveLength(1);
   });
 });

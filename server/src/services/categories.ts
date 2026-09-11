@@ -14,8 +14,10 @@ export const DEFAULT_CATEGORIES = [
 
 export async function seedCategories(db: Db, spaceId: string) {
   const now = new Date();
-  await db.insert(spaceSettings).values({ spaceId }).onConflictDoNothing();
-  await db.insert(categories).values(
-    DEFAULT_CATEGORIES.map((c) => ({ id: randomUUID(), spaceId, ...c, clientUpdatedAt: now })),
-  ).onConflictDoNothing();
+  await db.transaction(async (tx) => {
+    await tx.insert(spaceSettings).values({ spaceId }).onConflictDoNothing();
+    await tx.insert(categories).values(
+      DEFAULT_CATEGORIES.map((c) => ({ id: randomUUID(), spaceId, ...c, clientUpdatedAt: now })),
+    ).onConflictDoNothing();
+  });
 }

@@ -4,6 +4,7 @@ import { bearer, organization } from "better-auth/plugins";
 import type { Db } from "./db/client.js";
 import * as schema from "./db/schema.js";
 import type { Env } from "./env.js";
+import { logger } from "./logger.js";
 import { seedCategories } from "./services/categories.js";
 
 export function createAuth(db: Db, env: Env) {
@@ -20,7 +21,12 @@ export function createAuth(db: Db, env: Env) {
       organization({
         organizationHooks: {
           afterCreateOrganization: async ({ organization }) => {
-            await seedCategories(db, organization.id);
+            try {
+              await seedCategories(db, organization.id);
+            } catch (err) {
+              logger.error({ err, organizationId: organization.id }, "space seeding failed");
+              throw err;
+            }
           },
         },
       }),
@@ -29,14 +35,19 @@ export function createAuth(db: Db, env: Env) {
       user: {
         create: {
           after: async (user) => {
-            await auth.api.createOrganization({
-              body: {
-                name: "Personal",
-                slug: `personal-${user.id.toLowerCase()}`,
-                userId: user.id,
-                metadata: { kind: "personal" },
-              },
-            });
+            try {
+              await auth.api.createOrganization({
+                body: {
+                  name: "Personal",
+                  slug: `personal-${user.id.toLowerCase()}`,
+                  userId: user.id,
+                  metadata: { kind: "personal" },
+                },
+              });
+            } catch (err) {
+              logger.error({ err, userId: user.id }, "personal space creation failed");
+              throw err;
+            }
           },
         },
       },
