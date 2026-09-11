@@ -1,6 +1,8 @@
-import { and, asc, eq, gt } from "drizzle-orm";
+import { and, asc, eq, gt, sql } from "drizzle-orm";
+import { z } from "zod";
 import type { Db } from "../db/client.js";
 import { budgets, categories, rules, transactions } from "../db/schema.js";
+import { mergeLww, mergeTransaction, type TxIncoming, type TxRow } from "./sync-merge.js";
 
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
 
@@ -70,4 +72,154 @@ export async function pullChanges(db: Db, spaceId: string, since: number, limit:
     budgets: page.filter((x) => x.kind === "b").map((x) => toBudgetWire(x.row)),
     rules: page.filter((x) => x.kind === "r").map((x) => toRuleWire(x.row)),
   };
+}
+
+// zod 4: chaining `.nullable().transform(...).default(null)` on the same schema
+// rejects the composed type (the `.default` is on the transformed-output side, which
+// zod won't accept). Put `.default(null)` on the *input* (pre-transform) schema instead,
+// then transform, per the brief's documented adaptation.
+const isoDate = z.string().datetime({ offset: true }).transform((s) => new Date(s));
+const nullableIso = z.string().datetime({ offset: true }).nullable().default(null).transform((s) => (s ? new Date(s) : null));
+const uuid = z.string().uuid();
+
+export const txWireIn = z.object({
+  id: uuid, source: z.string().min(1), receipt_code: z.string().min(1).nullable(),
+  direction: z.enum(["in", "out", "transfer"]), amount_cents: z.number().int(), cost_cents: z.number().int().nonnegative().default(0),
+  balance_cents: z.number().int().nullable().default(null), counterparty: z.string(), occurred_at: isoDate,
+  category_id: uuid.nullable().default(null), reason: z.string().nullable().default(null),
+  client_updated_at: isoDate, deleted_at: nullableIso,
+});
+export const categoryWireIn = z.object({
+  id: uuid, name: z.string().trim().min(1).max(40), kind: z.enum(["expense", "income", "transfer"]), emoji: z.string().min(1).max(8),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/), sort_order: z.number().int().default(0), archived: z.boolean().default(false),
+  client_updated_at: isoDate, deleted_at: nullableIso,
+});
+export const budgetWireIn = z.object({
+  id: uuid, category_id: uuid, monthly_limit_cents: z.number().int().positive(), client_updated_at: isoDate, deleted_at: nullableIso,
+});
+export const ruleWireIn = z.object({
+  id: uuid, match_counterparty: z.string().trim().min(1), category_id: uuid, client_updated_at: isoDate, deleted_at: nullableIso,
+});
+export const pushBody = z.object({
+  transactions: z.array(z.unknown()).default([]), categories: z.array(z.unknown()).default([]),
+  budgets: z.array(z.unknown()).default([]), rules: z.array(z.unknown()).default([]),
+});
+
+export type PushResult = { table: "transactions" | "categories" | "budgets" | "rules"; id: string; status: "applied" | "unchanged" | "rejected"; error?: string; message?: string; row?: unknown };
+export type PushResponse = { results: PushResult[]; cursor: number };
+
+const nextSeq = sql<number>`nextval('change_seq')`;
+
+export async function pushChanges(db: Db, ctx: { spaceId: string; userId: string }, raw: unknown): Promise<PushResponse> {
+  const body = pushBody.parse(raw);
+  const results: PushResult[] = [];
+
+  await db.transaction(async (tx) => {
+    // Lock the space's rows for the duration of this push so two devices cannot interleave.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${ctx.spaceId}))`);
+    const now = new Date();
+
+    const liveCategoryIds = async () => new Set(
+      (await tx.select({ id: categories.id }).from(categories).where(and(eq(categories.spaceId, ctx.spaceId), sql`${categories.deletedAt} is null`))).map((r) => r.id),
+    );
+
+    // 1. categories (processed first so budgets/rules/transactions in the same batch
+    // that reference a newly-pushed category can resolve it)
+    for (const item of body.categories) {
+      const p = categoryWireIn.safeParse(item);
+      if (!p.success) { results.push({ table: "categories", id: String((item as any)?.id ?? ""), status: "rejected", error: "invalid", message: p.error.issues[0]?.message }); continue; }
+      const w = p.data;
+      const [existing] = await tx.select().from(categories).where(and(eq(categories.spaceId, ctx.spaceId), eq(categories.id, w.id))).limit(1);
+      if (existing?.isSystem && (w.kind !== existing.kind || w.deleted_at || w.archived)) { results.push({ table: "categories", id: w.id, status: "rejected", error: "system_category", row: toCategoryWire(existing) }); continue; }
+      const [dup] = await tx.select({ id: categories.id }).from(categories)
+        .where(and(eq(categories.spaceId, ctx.spaceId), sql`lower(${categories.name}) = lower(${w.name})`, sql`${categories.deletedAt} is null`, sql`${categories.id} <> ${w.id}`)).limit(1);
+      if (dup && !w.deleted_at) { results.push({ table: "categories", id: w.id, status: "rejected", error: "duplicate_name" }); continue; }
+      const incoming = { id: w.id, spaceId: ctx.spaceId, name: w.name, kind: w.kind, emoji: w.emoji, color: w.color, sortOrder: w.sort_order, archived: w.archived, isSystem: existing?.isSystem ?? false, clientUpdatedAt: w.client_updated_at, deletedAt: w.deleted_at };
+      const m = mergeLww(existing ?? null, incoming as any);
+      if (m.action === "insert") {
+        const [row] = await tx.insert(categories).values({ ...incoming, updatedAt: now }).returning();
+        results.push({ table: "categories", id: w.id, status: "applied", row: toCategoryWire(row) });
+      } else if (m.action === "update") {
+        const [row] = await tx.update(categories).set({ ...m.row, seq: nextSeq, updatedAt: now }).where(eq(categories.id, existing!.id)).returning();
+        results.push({ table: "categories", id: w.id, status: "applied", row: toCategoryWire(row) });
+      } else if (m.action === "unchanged") {
+        results.push({ table: "categories", id: w.id, status: "unchanged", row: toCategoryWire(m.row as any) });
+      }
+    }
+
+    // 2. budgets
+    let catIds = await liveCategoryIds();
+    for (const item of body.budgets) {
+      const p = budgetWireIn.safeParse(item);
+      if (!p.success) { results.push({ table: "budgets", id: String((item as any)?.id ?? ""), status: "rejected", error: "invalid", message: p.error.issues[0]?.message }); continue; }
+      const w = p.data;
+      if (!catIds.has(w.category_id)) { results.push({ table: "budgets", id: w.id, status: "rejected", error: "bad_category" }); continue; }
+      const [existing] = await tx.select().from(budgets).where(and(eq(budgets.spaceId, ctx.spaceId), eq(budgets.id, w.id))).limit(1);
+      const incoming = { id: w.id, spaceId: ctx.spaceId, categoryId: w.category_id, monthlyLimitCents: w.monthly_limit_cents, clientUpdatedAt: w.client_updated_at, deletedAt: w.deleted_at };
+      const m = mergeLww(existing ?? null, incoming as any);
+      if (m.action === "insert") {
+        const [row] = await tx.insert(budgets).values({ ...incoming, updatedAt: now }).returning();
+        results.push({ table: "budgets", id: w.id, status: "applied", row: toBudgetWire(row) });
+      } else if (m.action === "update") {
+        const [row] = await tx.update(budgets).set({ ...m.row, seq: nextSeq, updatedAt: now }).where(eq(budgets.id, existing!.id)).returning();
+        results.push({ table: "budgets", id: w.id, status: "applied", row: toBudgetWire(row) });
+      } else if (m.action === "unchanged") {
+        results.push({ table: "budgets", id: w.id, status: "unchanged", row: toBudgetWire(m.row as any) });
+      }
+    }
+
+    // 3. rules
+    for (const item of body.rules) {
+      const p = ruleWireIn.safeParse(item);
+      if (!p.success) { results.push({ table: "rules", id: String((item as any)?.id ?? ""), status: "rejected", error: "invalid", message: p.error.issues[0]?.message }); continue; }
+      const w = p.data;
+      if (!catIds.has(w.category_id)) { results.push({ table: "rules", id: w.id, status: "rejected", error: "bad_category" }); continue; }
+      const [existing] = await tx.select().from(rules).where(and(eq(rules.spaceId, ctx.spaceId), eq(rules.id, w.id))).limit(1);
+      const incoming = { id: w.id, spaceId: ctx.spaceId, matchCounterparty: w.match_counterparty.toLowerCase().replace(/\s+/g, " "), categoryId: w.category_id, createdBy: existing?.createdBy ?? ctx.userId, clientUpdatedAt: w.client_updated_at, deletedAt: w.deleted_at };
+      const m = mergeLww(existing ?? null, incoming as any);
+      if (m.action === "insert") {
+        const [row] = await tx.insert(rules).values({ ...incoming, updatedAt: now }).returning();
+        results.push({ table: "rules", id: w.id, status: "applied", row: toRuleWire(row) });
+      } else if (m.action === "update") {
+        const [row] = await tx.update(rules).set({ ...m.row, seq: nextSeq, updatedAt: now }).where(eq(rules.id, existing!.id)).returning();
+        results.push({ table: "rules", id: w.id, status: "applied", row: toRuleWire(row) });
+      } else if (m.action === "unchanged") {
+        results.push({ table: "rules", id: w.id, status: "unchanged", row: toRuleWire(m.row as any) });
+      }
+    }
+
+    // 4. transactions (re-read live category ids: a category pushed in step 1 above must
+    // be visible here for a transaction in the same batch to reference it)
+    catIds = await liveCategoryIds();
+    for (const item of body.transactions) {
+      const p = txWireIn.safeParse(item);
+      if (!p.success) { results.push({ table: "transactions", id: String((item as any)?.id ?? ""), status: "rejected", error: "invalid", message: p.error.issues[0]?.message }); continue; }
+      const w = p.data;
+      const incoming: TxIncoming = {
+        id: w.id, source: w.source, receiptCode: w.receipt_code, direction: w.direction, amountCents: w.amount_cents, costCents: w.cost_cents,
+        balanceCents: w.balance_cents, counterparty: w.counterparty, occurredAt: w.occurred_at, categoryId: w.category_id, reason: w.reason,
+        clientUpdatedAt: w.client_updated_at, deletedAt: w.deleted_at,
+      };
+      let [existing] = await tx.select().from(transactions).where(and(eq(transactions.spaceId, ctx.spaceId), eq(transactions.id, w.id))).limit(1);
+      if (!existing && w.receipt_code) {
+        [existing] = await tx.select().from(transactions).where(and(
+          eq(transactions.spaceId, ctx.spaceId), eq(transactions.source, w.source), eq(transactions.receiptCode, w.receipt_code), eq(transactions.direction, w.direction),
+        )).limit(1);
+      }
+      const m = mergeTransaction((existing as TxRow | undefined) ?? null, incoming, { spaceId: ctx.spaceId, userId: ctx.userId, categoryExists: (id) => catIds.has(id) });
+      if (m.action === "rejected") { results.push({ table: "transactions", id: w.id, status: "rejected", error: m.error, message: m.message, row: m.row ? toTxWire(m.row as any) : undefined }); continue; }
+      if (m.action === "insert") {
+        const [row] = await tx.insert(transactions).values({ ...m.row, updatedAt: now }).returning();
+        results.push({ table: "transactions", id: w.id, status: "applied", row: toTxWire(row) });
+      } else if (m.action === "update") {
+        const [row] = await tx.update(transactions).set({ ...m.row, seq: nextSeq, updatedAt: now }).where(eq(transactions.id, existing!.id)).returning();
+        results.push({ table: "transactions", id: w.id, status: "applied", row: toTxWire(row) });
+      } else {
+        results.push({ table: "transactions", id: w.id, status: "unchanged", row: toTxWire(m.row as any) });
+      }
+    }
+  });
+
+  const [{ v }] = (await db.execute(sql`select last_value as v from change_seq`)).rows as any[];
+  return { results, cursor: Number(v) };
 }
