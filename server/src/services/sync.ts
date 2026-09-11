@@ -1,8 +1,9 @@
 import { and, asc, eq, gt, sql } from "drizzle-orm";
+import type { PgColumn, PgTable } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import type { Db } from "../db/client.js";
 import { budgets, categories, rules, transactions } from "../db/schema.js";
-import { mergeLww, mergeTransaction, type TxIncoming, type TxRow } from "./sync-merge.js";
+import { mergeLww, mergeTransaction, type LwwRow, type TxIncoming } from "./sync-merge.js";
 
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
 
@@ -65,7 +66,11 @@ export async function pullChanges(db: Db, spaceId: string, since: number, limit:
     const rulRows = await t.select().from(rules).where(and(eq(rules.spaceId, spaceId), gt(rules.seq, since))).orderBy(asc(rules.seq)).limit(fetchLimit);
     return [txRows, catRows, budRows, rulRows] as const;
   }, { isolationLevel: "repeatable read" });
-  type Tagged = { seq: number; kind: "t" | "c" | "b" | "r"; row: any };
+  type Tagged =
+    | { seq: number; kind: "t"; row: typeof transactions.$inferSelect }
+    | { seq: number; kind: "c"; row: typeof categories.$inferSelect }
+    | { seq: number; kind: "b"; row: typeof budgets.$inferSelect }
+    | { seq: number; kind: "r"; row: typeof rules.$inferSelect };
   const all: Tagged[] = [
     ...tx.map((row) => ({ seq: row.seq, kind: "t" as const, row })),
     ...cat.map((row) => ({ seq: row.seq, kind: "c" as const, row })),
@@ -129,6 +134,52 @@ export class PushValidationError extends Error {}
 
 const nextSeq = sql<number>`nextval('change_seq')`;
 
+// An item that failed zod parsing is still reported per-row, so we need whatever id it
+// claimed to carry — without asserting anything about its shape.
+const claimedId = (item: unknown): string => {
+  const id = (item as { id?: unknown } | null | undefined)?.id;
+  return typeof id === "string" ? id : "";
+};
+
+type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
+
+// The three LWW tables (categories, budgets, rules) share one insert/update/unchanged tail:
+// only the table, the incoming row and the wire mapper differ. `LwwInsert` is the shape
+// applyLww needs from a table's insert type (drizzle's `deletedAt` is optional there, unlike
+// the select type's `Date | null`), so every table in the schema with the sync columns fits.
+type LwwInsert = { id: string; clientUpdatedAt: Date; deletedAt?: Date | null };
+type LwwTable = PgTable & { id: PgColumn; $inferSelect: LwwRow; $inferInsert: LwwInsert };
+type LwwSpec<T extends LwwTable, Wire> = {
+  table: Exclude<PushResult["table"], "transactions">;
+  drizzleTable: T;
+  incoming: T["$inferInsert"];
+  existing: T["$inferSelect"] | undefined;
+  toWire: (row: T["$inferSelect"]) => Wire;
+  now: Date;
+};
+
+async function applyLww<T extends LwwTable, Wire>(tx: Tx, spec: LwwSpec<T, Wire>): Promise<PushResult> {
+  // mergeLww compares one row type against itself; `incoming` is the insert shape of the
+  // same table (identical apart from the server-managed columns it omits), so it stands in
+  // for the select type here rather than every caller widening its own literal.
+  const m = mergeLww<T["$inferSelect"]>(spec.existing ?? null, spec.incoming as T["$inferSelect"]);
+  if (m.action === "insert") {
+    const [row] = await tx.insert(spec.drizzleTable).values({ ...m.row, updatedAt: spec.now }).returning();
+    return { table: spec.table, id: spec.incoming.id, status: "applied", row: spec.toWire(row) };
+  }
+  if (m.action === "update") {
+    // drizzle types `.returning()` on a generic table as a conditional that doesn't resolve
+    // to an array; the runtime value is the same row list as the insert path's.
+    const rows = (await tx.update(spec.drizzleTable).set({ ...m.row, seq: nextSeq, updatedAt: spec.now })
+      .where(eq(spec.drizzleTable.id, m.row.id)).returning()) as unknown as T["$inferSelect"][];
+    return { table: spec.table, id: spec.incoming.id, status: "applied", row: spec.toWire(rows[0]) };
+  }
+  if (m.action === "unchanged") return { table: spec.table, id: spec.incoming.id, status: "unchanged", row: spec.toWire(m.row) };
+  // mergeLww never rejects (per-table prechecks above own that); MergeResult is shared with
+  // mergeTransaction, which does.
+  throw new Error(`unexpected merge action for ${spec.table}: ${m.action}`);
+}
+
 export async function pushChanges(db: Db, ctx: { spaceId: string; userId: string }, raw: unknown): Promise<PushResponse> {
   const parsedBody = pushBody.safeParse(raw);
   if (!parsedBody.success) throw new PushValidationError(parsedBody.error.issues[0]?.message ?? "invalid push body");
@@ -148,7 +199,7 @@ export async function pushChanges(db: Db, ctx: { spaceId: string; userId: string
     // that reference a newly-pushed category can resolve it)
     for (const item of body.categories) {
       const p = categoryWireIn.safeParse(item);
-      if (!p.success) { results.push({ table: "categories", id: String((item as any)?.id ?? ""), status: "rejected", error: "invalid", message: p.error.issues[0]?.message }); continue; }
+      if (!p.success) { results.push({ table: "categories", id: claimedId(item), status: "rejected", error: "invalid", message: p.error.issues[0]?.message }); continue; }
       const w = p.data;
       // Look up by id across all spaces first: the id is a client-generated uuid, and a
       // row with the same id already living in a *different* space (e.g. two devices that
@@ -158,20 +209,13 @@ export async function pushChanges(db: Db, ctx: { spaceId: string; userId: string
       if (byId && byId.spaceId !== ctx.spaceId) { results.push({ table: "categories", id: w.id, status: "rejected", error: "id_conflict" }); continue; }
       const existing = byId;
       if (existing?.isSystem && (w.kind !== existing.kind || w.deleted_at || w.archived)) { results.push({ table: "categories", id: w.id, status: "rejected", error: "system_category", row: toCategoryWire(existing) }); continue; }
+      // Covers both the insert and the update path: renaming a category onto another live
+      // category's name would violate `categories_space_name_uq`.
       const [dup] = await tx.select({ id: categories.id }).from(categories)
         .where(and(eq(categories.spaceId, ctx.spaceId), sql`lower(${categories.name}) = lower(${w.name})`, sql`${categories.deletedAt} is null`, sql`${categories.id} <> ${w.id}`)).limit(1);
       if (dup && !w.deleted_at) { results.push({ table: "categories", id: w.id, status: "rejected", error: "duplicate_name" }); continue; }
       const incoming = { id: w.id, spaceId: ctx.spaceId, name: w.name, kind: w.kind, emoji: w.emoji, color: w.color, sortOrder: w.sort_order, archived: w.archived, isSystem: existing?.isSystem ?? false, clientUpdatedAt: w.client_updated_at, deletedAt: w.deleted_at };
-      const m = mergeLww(existing ?? null, incoming as any);
-      if (m.action === "insert") {
-        const [row] = await tx.insert(categories).values({ ...incoming, updatedAt: now }).returning();
-        results.push({ table: "categories", id: w.id, status: "applied", row: toCategoryWire(row) });
-      } else if (m.action === "update") {
-        const [row] = await tx.update(categories).set({ ...m.row, seq: nextSeq, updatedAt: now }).where(eq(categories.id, existing!.id)).returning();
-        results.push({ table: "categories", id: w.id, status: "applied", row: toCategoryWire(row) });
-      } else if (m.action === "unchanged") {
-        results.push({ table: "categories", id: w.id, status: "unchanged", row: toCategoryWire(m.row as any) });
-      }
+      results.push(await applyLww(tx, { table: "categories", drizzleTable: categories, incoming, existing, toWire: toCategoryWire, now }));
     }
 
     // 2. budgets (catIds is computed once, after categories, and reused by budgets, rules
@@ -180,11 +224,20 @@ export async function pushChanges(db: Db, ctx: { spaceId: string; userId: string
     const catIds = await liveCategoryIds();
     for (const item of body.budgets) {
       const p = budgetWireIn.safeParse(item);
-      if (!p.success) { results.push({ table: "budgets", id: String((item as any)?.id ?? ""), status: "rejected", error: "invalid", message: p.error.issues[0]?.message }); continue; }
+      if (!p.success) { results.push({ table: "budgets", id: claimedId(item), status: "rejected", error: "invalid", message: p.error.issues[0]?.message }); continue; }
       const w = p.data;
       const [byId] = await tx.select().from(budgets).where(eq(budgets.id, w.id)).limit(1);
       if (byId && byId.spaceId !== ctx.spaceId) { results.push({ table: "budgets", id: w.id, status: "rejected", error: "id_conflict" }); continue; }
       if (!catIds.has(w.category_id)) { results.push({ table: "budgets", id: w.id, status: "rejected", error: "bad_category" }); continue; }
+      // Update path: re-pointing a known budget at a category that already has its own live
+      // budget would violate `budgets_space_category_uq` and 500 the whole push. Reject the
+      // row and hand back the budget that is in the way so the client can merge locally.
+      // Deletes are exempt: the partial index only covers live rows.
+      if (byId && byId.categoryId !== w.category_id && !w.deleted_at) {
+        const [clash] = await tx.select().from(budgets)
+          .where(and(eq(budgets.spaceId, ctx.spaceId), eq(budgets.categoryId, w.category_id), sql`${budgets.deletedAt} is null`, sql`${budgets.id} <> ${w.id}`)).limit(1);
+        if (clash) { results.push({ table: "budgets", id: w.id, status: "rejected", error: "duplicate_budget", row: toBudgetWire(clash) }); continue; }
+      }
       // The `budgets_space_category_uq` index means a second budget for a category that
       // already has a live one would 500 on insert. Treat it as an edit of the existing
       // budget instead (mirroring mergeTransaction's receipt-code dedupe): if there's no
@@ -196,27 +249,25 @@ export async function pushChanges(db: Db, ctx: { spaceId: string; userId: string
           .where(and(eq(budgets.spaceId, ctx.spaceId), eq(budgets.categoryId, w.category_id), sql`${budgets.deletedAt} is null`)).limit(1);
       }
       const incoming = { id: w.id, spaceId: ctx.spaceId, categoryId: w.category_id, monthlyLimitCents: w.monthly_limit_cents, clientUpdatedAt: w.client_updated_at, deletedAt: w.deleted_at };
-      const m = mergeLww(existing ?? null, incoming as any);
-      if (m.action === "insert") {
-        const [row] = await tx.insert(budgets).values({ ...incoming, updatedAt: now }).returning();
-        results.push({ table: "budgets", id: w.id, status: "applied", row: toBudgetWire(row) });
-      } else if (m.action === "update") {
-        const [row] = await tx.update(budgets).set({ ...m.row, seq: nextSeq, updatedAt: now }).where(eq(budgets.id, existing!.id)).returning();
-        results.push({ table: "budgets", id: w.id, status: "applied", row: toBudgetWire(row) });
-      } else if (m.action === "unchanged") {
-        results.push({ table: "budgets", id: w.id, status: "unchanged", row: toBudgetWire(m.row as any) });
-      }
+      results.push(await applyLww(tx, { table: "budgets", drizzleTable: budgets, incoming, existing, toWire: toBudgetWire, now }));
     }
 
     // 3. rules
     for (const item of body.rules) {
       const p = ruleWireIn.safeParse(item);
-      if (!p.success) { results.push({ table: "rules", id: String((item as any)?.id ?? ""), status: "rejected", error: "invalid", message: p.error.issues[0]?.message }); continue; }
+      if (!p.success) { results.push({ table: "rules", id: claimedId(item), status: "rejected", error: "invalid", message: p.error.issues[0]?.message }); continue; }
       const w = p.data;
       const [byId] = await tx.select().from(rules).where(eq(rules.id, w.id)).limit(1);
       if (byId && byId.spaceId !== ctx.spaceId) { results.push({ table: "rules", id: w.id, status: "rejected", error: "id_conflict" }); continue; }
       if (!catIds.has(w.category_id)) { results.push({ table: "rules", id: w.id, status: "rejected", error: "bad_category" }); continue; }
       const normalized = w.match_counterparty.toLowerCase().replace(/\s+/g, " ");
+      // Update path, same hazard as budgets above: renaming a known rule onto another live
+      // rule's counterparty would violate `rules_space_match_uq`.
+      if (byId && byId.matchCounterparty !== normalized && !w.deleted_at) {
+        const [clash] = await tx.select().from(rules)
+          .where(and(eq(rules.spaceId, ctx.spaceId), eq(rules.matchCounterparty, normalized), sql`${rules.deletedAt} is null`, sql`${rules.id} <> ${w.id}`)).limit(1);
+        if (clash) { results.push({ table: "rules", id: w.id, status: "rejected", error: "duplicate_rule", row: toRuleWire(clash) }); continue; }
+      }
       // `rules_space_match_uq` means a second rule for the same (normalised) counterparty
       // would 500 on insert. Same dedupe-as-edit treatment as budgets above: fall back to
       // the live row matching this counterparty when there's no id match.
@@ -226,23 +277,15 @@ export async function pushChanges(db: Db, ctx: { spaceId: string; userId: string
           .where(and(eq(rules.spaceId, ctx.spaceId), eq(rules.matchCounterparty, normalized), sql`${rules.deletedAt} is null`)).limit(1);
       }
       const incoming = { id: w.id, spaceId: ctx.spaceId, matchCounterparty: normalized, categoryId: w.category_id, createdBy: existing?.createdBy ?? ctx.userId, clientUpdatedAt: w.client_updated_at, deletedAt: w.deleted_at };
-      const m = mergeLww(existing ?? null, incoming as any);
-      if (m.action === "insert") {
-        const [row] = await tx.insert(rules).values({ ...incoming, updatedAt: now }).returning();
-        results.push({ table: "rules", id: w.id, status: "applied", row: toRuleWire(row) });
-      } else if (m.action === "update") {
-        const [row] = await tx.update(rules).set({ ...m.row, seq: nextSeq, updatedAt: now }).where(eq(rules.id, existing!.id)).returning();
-        results.push({ table: "rules", id: w.id, status: "applied", row: toRuleWire(row) });
-      } else if (m.action === "unchanged") {
-        results.push({ table: "rules", id: w.id, status: "unchanged", row: toRuleWire(m.row as any) });
-      }
+      results.push(await applyLww(tx, { table: "rules", drizzleTable: rules, incoming, existing, toWire: toRuleWire, now }));
     }
 
     // 4. transactions (catIds computed once above, after categories — see the comment on
-    // that declaration)
+    // that declaration). This table doesn't use applyLww: mergeTransaction has its own
+    // immutable-field and validation rules on top of the LWW comparison.
     for (const item of body.transactions) {
       const p = txWireIn.safeParse(item);
-      if (!p.success) { results.push({ table: "transactions", id: String((item as any)?.id ?? ""), status: "rejected", error: "invalid", message: p.error.issues[0]?.message }); continue; }
+      if (!p.success) { results.push({ table: "transactions", id: claimedId(item), status: "rejected", error: "invalid", message: p.error.issues[0]?.message }); continue; }
       const w = p.data;
       const incoming: TxIncoming = {
         id: w.id, source: w.source, receiptCode: w.receipt_code, direction: w.direction, amountCents: w.amount_cents, costCents: w.cost_cents,
@@ -257,8 +300,11 @@ export async function pushChanges(db: Db, ctx: { spaceId: string; userId: string
           eq(transactions.spaceId, ctx.spaceId), eq(transactions.source, w.source), eq(transactions.receiptCode, w.receipt_code), eq(transactions.direction, w.direction),
         )).limit(1);
       }
-      const m = mergeTransaction((existing as TxRow | undefined) ?? null, incoming, { spaceId: ctx.spaceId, userId: ctx.userId, categoryExists: (id) => catIds.has(id) });
-      if (m.action === "rejected") { results.push({ table: "transactions", id: w.id, status: "rejected", error: m.error, message: m.message, row: m.row ? toTxWire(m.row as any) : undefined }); continue; }
+      const m = mergeTransaction(existing ?? null, incoming, { spaceId: ctx.spaceId, userId: ctx.userId, categoryExists: (id) => catIds.has(id) });
+      // mergeTransaction only ever returns `existing` as the row on its rejected and
+      // unchanged results, so the server row is reported from `existing` (the full drizzle
+      // row) rather than the merge's TxRow view of it.
+      if (m.action === "rejected") { results.push({ table: "transactions", id: w.id, status: "rejected", error: m.error, message: m.message, row: m.row && existing ? toTxWire(existing) : undefined }); continue; }
       if (m.action === "insert") {
         const [row] = await tx.insert(transactions).values({ ...m.row, updatedAt: now }).returning();
         results.push({ table: "transactions", id: w.id, status: "applied", row: toTxWire(row) });
@@ -266,7 +312,7 @@ export async function pushChanges(db: Db, ctx: { spaceId: string; userId: string
         const [row] = await tx.update(transactions).set({ ...m.row, seq: nextSeq, updatedAt: now }).where(eq(transactions.id, existing!.id)).returning();
         results.push({ table: "transactions", id: w.id, status: "applied", row: toTxWire(row) });
       } else {
-        results.push({ table: "transactions", id: w.id, status: "unchanged", row: toTxWire(m.row as any) });
+        results.push({ table: "transactions", id: w.id, status: "unchanged", row: toTxWire(existing!) });
       }
     }
 
@@ -274,8 +320,8 @@ export async function pushChanges(db: Db, ctx: { spaceId: string; userId: string
     // lock): reading it after `db.transaction` returns would run on a separate pooled
     // connection, after our commit has released the lock, letting a concurrent same-space
     // push commit in between and hand this caller a cursor that silently skips those rows.
-    const [{ v }] = (await tx.execute(sql`select last_value as v from change_seq`)).rows as any[];
-    return Number(v);
+    const seqRows = (await tx.execute(sql`select last_value as v from change_seq`)).rows as { v: string | number }[];
+    return Number(seqRows[0].v);
   });
 
   return { results, cursor };
