@@ -21,25 +21,25 @@ to observe, `record:` a number or fact that must be written into this file.
 ### Stage 0.1 Protect the existing data
 | Step | Status |
 |---|---|
-| Back up `transaction.db` from the VPS to local disk | todo |
+| Back up `transaction.db` from the VPS to local disk | done 2026-09-11 (`~/.local/share/wallet-backups/transaction-2026-09-11.db`) |
 | Record row count and per-direction sums from the VPS copy | done 2026-09-11 (74 rows; out 9027.00; in 2400.00; 2026-08-31 → 2026-09-11) |
-| Create backup bucket and `rclone` remote on the VPS (D0.2) | blocked (bucket `wallet` exists at R2 endpoint `2da3db08a4fb95c041b0b03f6b8e708d.r2.cloudflarestorage.com`; needs an R2 API token: Access Key ID + Secret) |
+| Create backup bucket and `rclone` remote on the VPS (D0.2) | done 2026-09-11 (`rclone`+`age` in `~/.local/bin` on the VPS, no sudo; remote `r2:` in `~/.config/rclone/rclone.conf`; token stored on laptop at `~/.config/wallet-backup/r2.env`) |
 | Generate `age` keypair; user stores private key outside repo | done 2026-09-11 (private key at `~/.config/wallet-backup/age-key.txt` on the user's laptop, mode 600; public key `age1ra0rk40y79kvyzezpla2duw38nj8jjueg9uupqgvepzvz52fwc3sx87a3z`; user to copy the private key into a password manager) |
-| Upload the SQLite backup to the bucket | blocked (bucket) |
+| Upload the SQLite backup to the bucket | done 2026-09-11 (`deploy/backup-sqlite-once.sh` → `r2:wallet/sqlite/sqlite-20260911-1327.db.age`, 37064 bytes) |
 
 Verification
-- cmd (VPS): `sqlite3 /home/deploy/opt/wallet/data/transaction.db "select count(*), sum(case when direction in ('','out') then amount else 0 end), sum(case when direction='in' then amount else 0 end) from transactions where deleted_at is null;"` → record: ____
-- cmd (local): same query on the copied file → check: identical
-- cmd (VPS): `rclone ls wallet-backups:` → check: the `.db.age` file is listed with non-zero size
+- cmd (VPS): `sqlite3 /home/deploy/opt/wallet/data/transaction.db "select count(*), sum(case when direction in ('','out') then amount else 0 end), sum(case when direction='in' then amount else 0 end) from transactions where deleted_at is null;"` → record: 74 | 9027.00 | 2400.00 (2026-09-11)
+- cmd (local): same query on the copied file → check: identical — verified 2026-09-11 on the decrypted R2 copy: (74, 9027.0, 2400.0)
+- cmd (VPS): `rclone ls r2:wallet/sqlite/` → check: the `.db.age` file is listed with non-zero size — verified 2026-09-11, 37064 bytes
 
 ### Stage 0.2 Branching and CI
 | Step | Status |
 |---|---|
 | `v2` branch created | done 2026-09-11 |
-| Branch protection on `main` and `v2` (PR required, CI required, no force-push) | done 2026-09-11 (`gh api`: PR required, 0 approvals, status check `test` strict, enforce_admins, no force-push/deletion; update contexts when `ci.yml` lands) |
-| Remove push-to-main deploy from `.github/workflows/deploy.yml`; make it tag-triggered | todo |
-| Add `.github/workflows/ci.yml`: Go tests + Android unit tests on PR | todo |
-| Fix `.gitignore` (`migrations/`, `public`, `dist`, `build/` scoped; `docs/` reviewed) | todo |
+| Branch protection on `main` and `v2` (PR required, CI required, no force-push) | done 2026-09-11 (`gh api`: PR required, 0 approvals, checks `test`+`android-test` strict, enforce_admins, no force-push/deletion) |
+| Remove push-to-main deploy from `.github/workflows/deploy.yml`; make it tag-triggered | done 2026-09-11 (PR #1) |
+| Add `.github/workflows/ci.yml`: Go tests + Android unit tests on PR | done 2026-09-11 (PR #1, both jobs green: https://github.com/NgigiN/wallet/actions/runs/34601952878) |
+| Fix `.gitignore` (`migrations/`, `public`, `dist`, `build/` scoped; `docs/` reviewed) | done 2026-09-11 (PR #1) |
 
 Verification
 - check: open a throwaway PR with a failing Go test → merge button disabled
@@ -49,7 +49,7 @@ Verification
 ### Stage 0.3 Accounts and approvals
 | Step | Status |
 |---|---|
-| Sentry projects created (server, web, android); DSNs received | blocked (user) |
+| Sentry projects created (server, web, android); DSNs received | done 2026-09-11 (DSNs stored on laptop at `~/.config/wallet-backup/sentry.env`, not in repo; wired in 1A Task 12 env and 1B/1D) |
 | Spec reviewed and approved by user | done 2026-09-11 (same-origin hostname; Postgres as a container with named volume) |
 | Phase 1 implementation plan written (writing-plans skill) | done 2026-09-11 for Phase 0 remainder + 1A (`plans/2026-09-11-wallet-v2-phase0-and-1a-backend.md`); 1B/1C/1D plans written after 1A ships |
 
@@ -203,10 +203,10 @@ Verification
 
 | Item | Needed by | Status |
 |---|---|---|
-| R2 API token (Access Key ID + Secret) for bucket `wallet` | Phase 0 | pending (endpoint known) |
+| R2 API token (Access Key ID + Secret) for bucket `wallet` | Phase 0 | done |
 | Branch protection enabled on `main`/`v2` | Phase 0 | done |
 | Android keystore + secrets in GitHub | Phase 1D | pending |
-| Sentry DSNs (server, web, android) | Phase 1A | pending |
+| Sentry DSNs (server, web, android) | Phase 1A | done |
 | VPS sudo session for staging nginx vhost | Phase 1A | pending |
 | Resend API key + verified sender | Phase 2 | pending |
 | Firebase: service account JSON, `google-services.json`, web config + VAPID key | Phase 3 | pending |
@@ -218,3 +218,4 @@ Verification
 - 2026-09-11: VPS survey. `sync.samtama.lol` is already taken (Obsidian CouchDB, port 5984), so the API cannot use it. `wallet.samtama.lol` proxies only the Go container with an API-only CSP. Uptime Kuma already runs at `status.samtama.lol` (Phase 4 monitor need is covered). Host PostgreSQL 16.15 is installed natively on 127.0.0.1:5432. Root disk is plain ext4, no LUKS (spec §15.5 gap confirmed). Live SQLite holds 74 rows dated 2026-08-31 onward; pre-Aug-31 Discord history is not in the file.
 - 2026-09-11: spec approved. Decisions: same-origin (`wallet.samtama.lol` serves PWA + `/api`), Postgres container with named volume. `v2` pushed; branch protection applied to `main` and `v2`. `age` keypair generated on the laptop. Uptime Kuma replaces the external monitor. R2 bucket `wallet` identified; API token still needed. Sentry explained to user; DSNs pending.
 - 2026-09-11: PR #1 opened (CI + tag deploys + docs). Phase 0 + 1A plan written (12 tasks, TDD). Spec §5.2 amended: `client_updated_at` on all synced tables.
+- 2026-09-11: PR #1 merged. Phase 0 complete except the staging-nginx sudo step (moved to 1A Task 12). R2 remote live, SQLite backed up encrypted and restore-verified. Sentry DSNs and R2 token received (kept out of repo). Execution: subagent-driven. Staging hostname: `wallet-staging.samtama.lol` (user's default accepted). PRs self-merged on green CI.
