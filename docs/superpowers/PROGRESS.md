@@ -23,8 +23,8 @@ to observe, `record:` a number or fact that must be written into this file.
 |---|---|
 | Back up `transaction.db` from the VPS to local disk | todo |
 | Record row count and per-direction sums from the VPS copy | done 2026-09-11 (74 rows; out 9027.00; in 2400.00; 2026-08-31 → 2026-09-11) |
-| Create backup bucket and `rclone` remote on the VPS (D0.2) | blocked (needs bucket credentials) |
-| Generate `age` keypair; user stores private key outside repo | todo |
+| Create backup bucket and `rclone` remote on the VPS (D0.2) | blocked (bucket `wallet` exists at R2 endpoint `2da3db08a4fb95c041b0b03f6b8e708d.r2.cloudflarestorage.com`; needs an R2 API token: Access Key ID + Secret) |
+| Generate `age` keypair; user stores private key outside repo | done 2026-09-11 (private key at `~/.config/wallet-backup/age-key.txt` on the user's laptop, mode 600; public key `age1ra0rk40y79kvyzezpla2duw38nj8jjueg9uupqgvepzvz52fwc3sx87a3z`; user to copy the private key into a password manager) |
 | Upload the SQLite backup to the bucket | blocked (bucket) |
 
 Verification
@@ -36,7 +36,7 @@ Verification
 | Step | Status |
 |---|---|
 | `v2` branch created | done 2026-09-11 |
-| Branch protection on `main` and `v2` (PR required, CI required, no force-push) | todo (user or `gh api`) |
+| Branch protection on `main` and `v2` (PR required, CI required, no force-push) | done 2026-09-11 (`gh api`: PR required, 0 approvals, status check `test` strict, enforce_admins, no force-push/deletion; update contexts when `ci.yml` lands) |
 | Remove push-to-main deploy from `.github/workflows/deploy.yml`; make it tag-triggered | todo |
 | Add `.github/workflows/ci.yml`: Go tests + Android unit tests on PR | todo |
 | Fix `.gitignore` (`migrations/`, `public`, `dist`, `build/` scoped; `docs/` reviewed) | todo |
@@ -50,7 +50,7 @@ Verification
 | Step | Status |
 |---|---|
 | Sentry projects created (server, web, android); DSNs received | blocked (user) |
-| Spec reviewed and approved by user | doing |
+| Spec reviewed and approved by user | done 2026-09-11 (same-origin hostname; Postgres as a container with named volume) |
 | Phase 1 implementation plan written (writing-plans skill) | todo |
 
 Verification
@@ -178,7 +178,7 @@ Verification
 | D4.1 Account deletion + export | todo |
 | D4.2 Privacy page, README v2, friend onboarding guide | todo |
 | D4.3 Parser registry, unknown-sender capture, "Report this format" | todo |
-| D4.4 Uptime monitor, Sentry on all surfaces, `npm audit` in CI | blocked (monitor account) |
+| D4.4 Uptime Kuma monitor confirmed, Sentry on all surfaces, `npm audit` in CI | todo |
 | D4.5 Play Store SMS policy assessment doc | todo |
 | D4.6 First two friends onboarded | todo |
 
@@ -203,16 +203,17 @@ Verification
 
 | Item | Needed by | Status |
 |---|---|---|
-| Backup bucket credentials (R2/B2) + `age` public key | Phase 0 | pending |
-| Branch protection enabled on `main`/`v2` (or allow `gh api` to do it) | Phase 0 | pending |
+| R2 API token (Access Key ID + Secret) for bucket `wallet` | Phase 0 | pending (endpoint known) |
+| Branch protection enabled on `main`/`v2` | Phase 0 | done |
 | Android keystore + secrets in GitHub | Phase 1D | pending |
 | Sentry DSNs (server, web, android) | Phase 1A | pending |
 | VPS sudo session for staging nginx vhost | Phase 1A | pending |
 | Resend API key + verified sender | Phase 2 | pending |
 | Firebase: service account JSON, `google-services.json`, web config + VAPID key | Phase 3 | pending |
-| Uptime monitor account | Phase 4 | pending |
+| Uptime Kuma monitor on new `/health` (user adds at cutover) | Phase 1C | pending |
 
 ## Changelog
 
 - 2026-09-11: spec drafted, `v2` branch created, tracker created. Awaiting spec review.
 - 2026-09-11: VPS survey. `sync.samtama.lol` is already taken (Obsidian CouchDB, port 5984), so the API cannot use it. `wallet.samtama.lol` proxies only the Go container with an API-only CSP. Uptime Kuma already runs at `status.samtama.lol` (Phase 4 monitor need is covered). Host PostgreSQL 16.15 is installed natively on 127.0.0.1:5432. Root disk is plain ext4, no LUKS (spec §15.5 gap confirmed). Live SQLite holds 74 rows dated 2026-08-31 onward; pre-Aug-31 Discord history is not in the file.
+- 2026-09-11: spec approved. Decisions: same-origin (`wallet.samtama.lol` serves PWA + `/api`), Postgres container with named volume. `v2` pushed; branch protection applied to `main` and `v2`. `age` keypair generated on the laptop. Uptime Kuma replaces the external monitor. R2 bucket `wallet` identified; API token still needed. Sentry explained to user; DSNs pending.
