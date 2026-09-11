@@ -1,6 +1,6 @@
 # Wallet v2 — multi-user platform design
 
-Status: draft, awaiting user review.
+Status: approved by user 2026-09-11 (same-origin hostname; Postgres container).
 Date: 2026-09-11
 Author: drafted with Claude from the 2026-09-11 brainstorm.
 Progress tracker: `docs/superpowers/PROGRESS.md` (living document, updated per stage).
@@ -144,6 +144,7 @@ Every application table that syncs carries the same four columns:
 | `created_at` | `timestamptz not null default now()` | |
 | `updated_at` | `timestamptz not null default now()` | Server clock, set on every write. |
 | `deleted_at` | `timestamptz null` | Soft delete. Rows are never hard-deleted while any client might hold a cursor older than the delete. A weekly job hard-deletes tombstones older than 90 days. |
+| `client_updated_at` | `timestamptz not null` | Client wall clock at its last edit. Last-writer-wins key for every synced table (amended 2026-09-11 by the Phase 1A plan so categories, budgets, and rules merge the same way transactions do). |
 
 `change_seq` is a single global Postgres sequence shared by all syncing tables.
 Sync clients only ever compare `seq` values, so a single sequence keeps the
@@ -674,8 +675,8 @@ against a restored production dump before the tag is cut. Remove
 ### 15.4 Observability
 
 - `/health` returns `{status, db: ok|fail, version, uptime}`; 503 on db fail.
-- Uptime monitor (BetterStack or UptimeRobot free tier) on `/health` every 5
-  min, alerting to the user's email.
+- Uptime Kuma, already running on the VPS at `status.samtama.lol`, monitors
+  `/health` every 5 min, alerting to the user's email.
 - Sentry DSNs for server, web, and Android.
 - `docker compose logs` is the log store for now; no external log shipping.
 
@@ -830,13 +831,13 @@ of effort. Each deliverable is a PR (or a recorded manual action) tracked in
 
 | Item | Needed by | Used for |
 |---|---|---|
-| Backup bucket credentials (R2 or B2) + `age` public key | Phase 0 | `deploy/backup.sh` |
+| R2 API token (Access Key ID + Secret) for bucket `wallet` | Phase 0 | `deploy/backup.sh` (`age` public key: `age1ra0rk40y79kvyzezpla2duw38nj8jjueg9uupqgvepzvz52fwc3sx87a3z`) |
 | GitHub: enable branch protection, add `ANDROID_KEYSTORE_*` secrets | Phase 0 | CI/release |
 | Sentry DSNs (server, web, android) | Phase 0 (used from 1A) | error tracking |
 | Sudo on VPS for the one-time staging nginx vhost | Phase 1A | staging |
 | Resend API key + verified `samtama.lol` sender | Phase 2 | OTP, invites |
 | Firebase project: service account JSON, Android `google-services.json`, web config + VAPID key | Phase 3 | push |
-| Uptime monitor account | Phase 4 | alerts |
+| Uptime Kuma monitor added for the new `/health` | Phase 1C cutover | alerts |
 
 Nothing in Phase 1 blocks on Resend or Firebase.
 
