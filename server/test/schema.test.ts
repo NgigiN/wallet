@@ -32,4 +32,12 @@ describe("schema", () => {
     });
     void base;
   });
+
+  it("rejects a transaction whose amount is not positive", async () => {
+    await testDb.execute(sql`insert into organization (id, name, slug, created_at) values ('s1','S','s1', now())`);
+    await expect(testDb.execute(sql`insert into transactions (id, space_id, source, receipt_code, direction, amount_cents, counterparty, occurred_at, client_updated_at)
+      values ('018f0000-0000-7000-8000-00000000000a','s1','manual',null,'out',0,'X',now(),now())`)).rejects.toMatchObject({
+      cause: { message: expect.stringMatching(/check constraint/i) },
+    });
+  });
 });

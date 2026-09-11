@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
-  bigint, boolean, index, integer, pgSequence, pgTable, smallint, text, timestamp, uniqueIndex, uuid,
+  bigint, boolean, check, index, integer, pgSequence, pgTable, smallint, text, timestamp, uniqueIndex, uuid,
 } from "drizzle-orm/pg-core";
 import { organization, user } from "./auth-schema.js";
 
@@ -34,6 +34,9 @@ export const categories = pgTable("categories", {
 }, (t) => [
   uniqueIndex("categories_space_name_uq").on(t.spaceId, sql`lower(${t.name})`).where(sql`${t.deletedAt} is null`),
   index("categories_space_seq_idx").on(t.spaceId, t.seq),
+  // The column's TS enum is a compile-time fiction over a plain `text` column; this is what
+  // stops a bad value reaching the table through a raw query or a future code path.
+  check("categories_kind_chk", sql`${t.kind} in ('expense','income','transfer')`),
 ]);
 
 export const transactions = pgTable("transactions", {
@@ -57,6 +60,11 @@ export const transactions = pgTable("transactions", {
   index("transactions_space_seq_idx").on(t.spaceId, t.seq),
   index("transactions_space_occurred_idx").on(t.spaceId, t.occurredAt),
   index("transactions_space_category_idx").on(t.spaceId, t.categoryId, t.occurredAt),
+  // Money invariants enforced in the database as well as in mergeTransaction: a zero or
+  // negative amount, a negative cost, or an unknown direction is corruption, not data.
+  check("transactions_amount_positive", sql`${t.amountCents} > 0`),
+  check("transactions_cost_nonneg", sql`${t.costCents} >= 0`),
+  check("transactions_direction_chk", sql`${t.direction} in ('in','out','transfer')`),
 ]);
 
 export const budgets = pgTable("budgets", {
@@ -68,6 +76,7 @@ export const budgets = pgTable("budgets", {
 }, (t) => [
   uniqueIndex("budgets_space_category_uq").on(t.spaceId, t.categoryId).where(sql`${t.deletedAt} is null`),
   index("budgets_space_seq_idx").on(t.spaceId, t.seq),
+  check("budgets_limit_positive", sql`${t.monthlyLimitCents} > 0`),
 ]);
 
 export const budgetAlerts = pgTable("budget_alerts", {
