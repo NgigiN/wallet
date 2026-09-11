@@ -1,0 +1,10 @@
+name: wallet2-staging
+services:
+  api:
+    env_file: .env.staging
+  backup:
+    environment:
+      BACKUP_PREFIX: staging
+volumes:
+  pgdata:
+    name: wallet2-staging-pgdata

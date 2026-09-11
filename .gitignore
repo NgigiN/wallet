@@ -240,6 +240,8 @@ config.local.json
 
 # Docker
 .dockerignore
+# build input for server/Dockerfile — must be committed
+!server/.dockerignore
 docker compose.override.yml
 
 # Kubernetes

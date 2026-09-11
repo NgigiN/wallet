@@ -1,0 +1,62 @@
+name: wallet2
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: wallet
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      POSTGRES_DB: wallet
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wallet -d wallet"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  api:
+    build:
+      context: ../server
+      dockerfile: Dockerfile
+      args:
+        APP_VERSION: ${APP_VERSION:-dev}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      # `.env` is the production file; the staging overlay appends `.env.staging`,
+      # whose values win. Optional so the staging stack does not need a `.env`.
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgres://wallet:${POSTGRES_PASSWORD}@postgres:5432/wallet
+    ports:
+      - "127.0.0.1:${API_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  backup:
+    image: alpine:3.20
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      AGE_PUBLIC_KEY: ${AGE_PUBLIC_KEY:?set in .env}
+      RCLONE_REMOTE: ${RCLONE_REMOTE:-r2:wallet/pg}
+      BACKUP_PREFIX: ${BACKUP_PREFIX:-prod}
+    volumes:
+      - ./backup.sh:/backup.sh:ro
+      - ${RCLONE_CONF:-/home/deploy/.config/rclone/rclone.conf}:/root/.config/rclone/rclone.conf:ro
+    command: >
+      sh -c "apk add --no-cache postgresql16-client age rclone >/dev/null &&
+             echo '0 2 * * * sh /backup.sh' | crontab - && crond -f -l 2"
+
+volumes:
+  pgdata:
