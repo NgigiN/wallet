@@ -5,7 +5,7 @@ export const CLIENT = "web/0.1.0";
 export async function signUp(app: Hono<any>, email: string, password = "correct-horse-battery") {
   const res = await app.request("/api/auth/sign-up/email", {
     method: "POST",
-    headers: { "content-type": "application/json", origin: "http://localhost:8080" },
+    headers: { "content-type": "application/json", origin: "http://localhost:8080", "x-real-ip": email },
     body: JSON.stringify({ email, password, name: email.split("@")[0] }),
   });
   if (res.status !== 200) throw new Error(`sign-up failed: ${res.status} ${await res.text()}`);
