@@ -2,14 +2,11 @@
 
 Run at the end of every phase and record the result in PROGRESS.md.
 
-`PREFIX` selects which set of dumps to restore: `prod` (default) or `staging`.
+Pick the prefix: `prod` for production, `staging` for staging; substitute it
+for `<prefix>` in the commands below.
 
-```bash
-PREFIX=${1:-prod}
-```
-
-1. On the laptop: `rclone ls r2:wallet/pg/$PREFIX/ | sort -k2 | tail -1` → note the newest file.
-2. `rclone copy r2:wallet/pg/$PREFIX/<file> /tmp/wallet-restore/`
+1. On the laptop: `rclone ls r2:wallet/pg/<prefix>/ | sort -k2 | tail -1` → note the newest file.
+2. `rclone copy r2:wallet/pg/<prefix>/<file> /tmp/wallet-restore/`
 3. `age -d -i ~/.config/wallet-backup/age-key.txt -o /tmp/wallet-restore/wallet.dump /tmp/wallet-restore/<file>`
 4. `docker run -d --name wallet-restore -e POSTGRES_PASSWORD=x -p 127.0.0.1:5499:5432 postgres:16-alpine`
 5. Wait for it to accept connections before restoring:

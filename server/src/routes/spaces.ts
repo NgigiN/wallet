@@ -4,6 +4,7 @@ import type { Auth } from "../auth.js";
 import type { Db } from "../db/client.js";
 import { member, organization } from "../db/schema.js";
 import { requireSpaceMember, spaceKind, type SpaceVars } from "../middleware/space.js";
+import { createPersonalSpace } from "../services/spaces.js";
 import { syncRoutes } from "./sync.js";
 
 async function loadMemberships(db: Db, userId: string) {
@@ -24,14 +25,7 @@ export function spaceRoutes(db: Db, auth: Auth) {
       // with no space and nothing to retry it. Recreate it here and re-query rather
       // than trusting createOrganization's return, to guard against a concurrent
       // request already having created it.
-      await auth.api.createOrganization({
-        body: {
-          name: "Personal",
-          slug: `personal-${user.id.toLowerCase()}`,
-          userId: user.id,
-          metadata: { kind: "personal" },
-        },
-      });
+      await createPersonalSpace(auth, user.id);
       rows = await loadMemberships(db, user.id);
     }
 

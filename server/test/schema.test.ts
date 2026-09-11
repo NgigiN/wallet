@@ -17,7 +17,6 @@ describe("schema", () => {
 
   it("enforces the transaction dedupe key including direction", async () => {
     await testDb.execute(sql`insert into organization (id, name, slug, created_at) values ('s1','S','s1', now())`);
-    const base = sql`('s1','mpesa','TID1',1000,'X',now(),now())`;
     await testDb.execute(sql`insert into transactions (id, space_id, source, receipt_code, direction, amount_cents, counterparty, occurred_at, client_updated_at)
       values ('018f0000-0000-7000-8000-000000000001','s1','mpesa','TID1','out',1000,'X',now(),now())`);
     await testDb.execute(sql`insert into transactions (id, space_id, source, receipt_code, direction, amount_cents, counterparty, occurred_at, client_updated_at)
@@ -30,7 +29,6 @@ describe("schema", () => {
       values ('018f0000-0000-7000-8000-000000000003','s1','mpesa','TID1','out',1000,'X',now(),now())`)).rejects.toMatchObject({
       cause: { message: expect.stringMatching(/unique/i) },
     });
-    void base;
   });
 
   it("rejects a transaction whose amount is not positive", async () => {

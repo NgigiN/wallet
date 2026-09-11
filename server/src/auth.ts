@@ -6,6 +6,7 @@ import * as schema from "./db/schema.js";
 import type { Env } from "./env.js";
 import { logger } from "./logger.js";
 import { seedCategories } from "./services/categories.js";
+import { createPersonalSpace } from "./services/spaces.js";
 
 export function createAuth(db: Db, env: Env) {
   const auth = betterAuth({
@@ -36,14 +37,7 @@ export function createAuth(db: Db, env: Env) {
         create: {
           after: async (user) => {
             try {
-              await auth.api.createOrganization({
-                body: {
-                  name: "Personal",
-                  slug: `personal-${user.id.toLowerCase()}`,
-                  userId: user.id,
-                  metadata: { kind: "personal" },
-                },
-              });
+              await createPersonalSpace(auth, user.id);
             } catch (err) {
               logger.error({ err, userId: user.id }, "personal space creation failed");
               throw err;
