@@ -22,7 +22,7 @@ to observe, `record:` a number or fact that must be written into this file.
 | Step | Status |
 |---|---|
 | Back up `transaction.db` from the VPS to local disk | todo |
-| Record row count and per-direction sums from the VPS copy | todo |
+| Record row count and per-direction sums from the VPS copy | done 2026-09-11 (74 rows; out 9027.00; in 2400.00; 2026-08-31 → 2026-09-11) |
 | Create backup bucket and `rclone` remote on the VPS (D0.2) | blocked (needs bucket credentials) |
 | Generate `age` keypair; user stores private key outside repo | todo |
 | Upload the SQLite backup to the bucket | blocked (bucket) |
@@ -215,3 +215,4 @@ Verification
 ## Changelog
 
 - 2026-09-11: spec drafted, `v2` branch created, tracker created. Awaiting spec review.
+- 2026-09-11: VPS survey. `sync.samtama.lol` is already taken (Obsidian CouchDB, port 5984), so the API cannot use it. `wallet.samtama.lol` proxies only the Go container with an API-only CSP. Uptime Kuma already runs at `status.samtama.lol` (Phase 4 monitor need is covered). Host PostgreSQL 16.15 is installed natively on 127.0.0.1:5432. Root disk is plain ext4, no LUKS (spec §15.5 gap confirmed). Live SQLite holds 74 rows dated 2026-08-31 onward; pre-Aug-31 Discord history is not in the file.
