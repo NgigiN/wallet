@@ -1,6 +1,7 @@
 import { serve } from "@hono/node-server";
 import { sql } from "drizzle-orm";
 import { createApp } from "./app.js";
+import { createAuth } from "./auth.js";
 import { createDb } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { loadEnv } from "./env.js";
@@ -11,8 +12,12 @@ const { db, pool } = createDb(env.DATABASE_URL);
 await runMigrations(db);
 logger.info("migrations applied");
 
+const auth = createAuth(db, env);
+
 const app = createApp({
   env,
+  db,
+  auth,
   healthDb: async () => {
     const r = await db.execute(sql`select 1 as ok`);
     return (r.rows[0] as any)?.ok === 1;

@@ -1,16 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { createApp } from "../src/app.js";
-import { loadEnv } from "../src/env.js";
-
-const env = loadEnv({
-  DATABASE_URL: "postgres://x",
-  BETTER_AUTH_SECRET: "0123456789abcdef0123456789abcdef",
-  BETTER_AUTH_URL: "http://localhost:8080",
-});
+import { createAuth } from "../src/auth.js";
+import { makeApp, testDb, testEnv } from "./setup.js";
 
 describe("GET /health", () => {
   it("returns healthy when the db check passes", async () => {
-    const app = createApp({ env, healthDb: async () => true } as any);
+    const app = makeApp();
     const res = await app.request("/health");
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -20,7 +15,8 @@ describe("GET /health", () => {
   });
 
   it("returns 503 when the db check fails", async () => {
-    const app = createApp({ env, healthDb: async () => false } as any);
+    const auth = createAuth(testDb, testEnv);
+    const app = createApp({ env: testEnv, db: testDb, auth, healthDb: async () => false });
     const res = await app.request("/health");
     expect(res.status).toBe(503);
     expect((await res.json()).db).toBe("fail");
