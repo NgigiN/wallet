@@ -27,7 +27,7 @@ export function createApp(deps: AppDeps) {
   v2.use("*", requireClientVersion(deps.env));
   v2.use("*", requireSession(deps.auth));
   v2.use("*", rateLimit({ windowMs: 60_000, max: 60, keyFn: (c) => (c.get("user") as any).id }));
-  v2.route("/me", meRoutes());
+  v2.route("/me", meRoutes(deps.db));
   v2.route("/spaces", spaceRoutes(deps.db, deps.auth));
   app.route("/api/v2", v2);
 
