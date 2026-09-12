@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "../src/db/schema";
-import { createManualTransaction, tagTransaction, softDeleteTransaction, setBudget, upsertCategory, upsertRule } from "../src/db/repo";
+import { createManualTransaction, tagTransaction, softDeleteTransaction, setBudget, upsertCategory, upsertRule, reorderCategories } from "../src/db/repo";
 import { getCursor, setCursor, getDeviceId } from "../src/db/meta";
 
 const S = "space-1";
@@ -38,6 +38,17 @@ describe("repo writes", () => {
     expect((await db.categories.get(c))!.name).toBe("Rent");
     const r = await upsertRule(S, "  Naivas   Supermarket ", c);
     expect((await db.rules.get(r))!.match_counterparty).toBe("naivas supermarket");
+  });
+  it("editing a category via upsertCategory never changes its sort_order", async () => {
+    const id = await upsertCategory(S, { name: "Rent", kind: "expense", emoji: "🏠", color: "#333333", sort_order: 5 });
+    await reorderCategories([id]);
+    const reordered = (await db.categories.get(id))!.sort_order;
+    await upsertCategory(S, { id, name: "Renamed", kind: "expense", emoji: "🏠", color: "#333333", sort_order: 42 });
+    const row = (await db.categories.get(id))!;
+    expect(row.sort_order).toBe(reordered);
+    expect(row.name).toBe("Renamed");
+    const newCat = await upsertCategory(S, { name: "New", kind: "expense", emoji: "🆕", color: "#111111", sort_order: 3 });
+    expect((await db.categories.get(newCat))!.sort_order).toBe(3);
   });
 });
 describe("meta", () => {

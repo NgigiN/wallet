@@ -26,7 +26,7 @@ export async function upsertCategory(spaceId: string, input: { id?: string; name
   const existing = input.id ? await db.categories.get(input.id) : undefined;
   const row: LocalCategory = {
     id, space_id: spaceId, name: input.name.trim(), kind: input.kind, emoji: input.emoji, color: input.color,
-    sort_order: input.sort_order ?? existing?.sort_order ?? 99, archived: existing?.archived ?? false, is_system: existing?.is_system ?? false,
+    sort_order: existing ? existing.sort_order : (input.sort_order ?? 99), archived: existing?.archived ?? false, is_system: existing?.is_system ?? false,
     client_updated_at: nowIso(), seq: existing?.seq ?? 0, updated_at: nowIso(), deleted_at: null, ...dirty,
   };
   await db.categories.put(row);

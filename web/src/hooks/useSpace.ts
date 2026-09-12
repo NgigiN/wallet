@@ -1,6 +1,6 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { db } from "../db/schema";
+import { getCurrentSpaceId } from "../db/meta";
 export function useSpaceId(): string | null {
-  const row = useLiveQuery(() => db.meta.get("currentSpace"), []);
-  return row?.value ?? null;
+  const spaceId = useLiveQuery(() => getCurrentSpaceId(), []);
+  return spaceId ?? null;
 }
