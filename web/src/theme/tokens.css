@@ -11,5 +11,5 @@
   --tab-h: 64px;
 }
 @media (prefers-color-scheme: dark) {
-  :root { --money-in: #4CAE78; --money-out: #E06A3C; --bg: #0E1512; --surface: #16201B; --surface-2: #1E2A24; --text: #EAF2EC; --text-dim: #9DB0A4; --line: #2A3A31; }
+  :root { --money-in: #4CAE78; --money-out: #E06A3C; --bg: #0E1512; --surface: #16201B; --surface-2: #1E2A24; --text: #EAF2EC; --text-dim: #9DB0A4; --line: #2A3A31; --danger: #E06A3C; }
 }
