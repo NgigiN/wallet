@@ -15,17 +15,40 @@ function toWireIn(row: Record<string, unknown>) {
 }
 const localTable = (t: Table) => db[t] as unknown as typeof db.transactions;
 
-async function applyResult(t: Table, r: PushResult) {
+/**
+ * A `rejected` result whose `row` shares the pushed id (`system_category`, `immutable`)
+ * means the server kept its own version and wrote nothing: the pull will never re-deliver
+ * that row and `collectDirty` only re-pushes `dirty` rows, so unless the server row is
+ * applied here the local copy diverges permanently. The row's data is therefore replaced
+ * with the server's while the row stays flagged `error`, so the UI can say why the edit
+ * did not stick.
+ *
+ * A `duplicate_budget` / `duplicate_rule` rejection carries the CLASHING row, not a merge
+ * target — the local row is a separate row that must stay (as `error`) for the user to fix
+ * or discard. Every other differing-id `row` (e.g. `immutable` reached via receipt-code
+ * dedupe) IS a merge target: adopt the server id and drop the local duplicate.
+ */
+const CLASH_ERRORS = new Set(["duplicate_budget", "duplicate_rule"]);
+
+async function applyResult(spaceId: string, t: Table, r: PushResult) {
   const table = localTable(t);
   const local = await table.get(r.id);
   if (r.status === "rejected") {
-    if (local) await table.update(r.id, { sync_state: "error", sync_error: r.error ?? "rejected" } as any);
-    if (r.row && r.row.id !== r.id) { if (local) await table.delete(r.id); await table.put({ ...r.row, space_id: local?.space_id, sync_state: "clean", sync_error: null } as any); }
+    const code = r.error ?? "rejected";
+    if (r.row && r.row.id === r.id) {
+      await table.put({ ...r.row, space_id: spaceId, sync_state: "error", sync_error: code } as any);
+      return;
+    }
+    if (local) await table.update(r.id, { sync_state: "error", sync_error: code } as any);
+    if (r.row) {
+      if (!CLASH_ERRORS.has(code) && local) await table.delete(r.id);
+      await table.put({ ...r.row, space_id: spaceId, sync_state: "clean", sync_error: null } as any);
+    }
     return;
   }
   if (r.row && r.row.id !== r.id) {
     if (local) await table.delete(r.id);
-    await table.put({ ...r.row, space_id: local?.space_id, sync_state: "clean", sync_error: null } as any);
+    await table.put({ ...r.row, space_id: spaceId, sync_state: "clean", sync_error: null } as any);
     return;
   }
   if (!local) return;
@@ -82,7 +105,12 @@ export async function runSync(spaceId: string, api: SyncApi = { pullPage, pushBa
     const body: Record<string, unknown[]> = {};
     for (const t of TABLES) if (b[t].length) body[t] = b[t].map(toWireIn);
     const res = await api.pushBatch(spaceId, body);
-    for (const r of res.results) { await applyResult(r.table, r); if (r.status === "rejected") rejected++; else pushed++; }
+    // One transaction per chunk rather than two auto-transactions per result: a 1000-row
+    // push is 2000 IndexedDB round trips otherwise, and a chunk's results should land
+    // together or not at all.
+    await db.transaction("rw", db.transactions, db.categories, db.budgets, db.rules, async () => {
+      for (const r of res.results) { await applyResult(spaceId, r.table, r); if (r.status === "rejected") rejected++; else pushed++; }
+    });
     pulled += await pullAll(spaceId, api);
   }
   if (batches.length === 0) pulled += await pullAll(spaceId, api);
