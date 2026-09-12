@@ -22,6 +22,16 @@ describe("Categories", () => {
     fireEvent.click(screen.getByText("Save"));
     await waitFor(async () => expect((await db.categories.toArray()).map((c) => c.name).sort()).toEqual(["Rent", "food"]));
   });
+
+  it("disables the archive control for a built-in category, with a hint", async () => {
+    await db.categories.put({ id: "sys1", name: "Uncategorised", kind: "expense", emoji: "🧾", color: "#607468", sort_order: 0, archived: false, is_system: true, client_updated_at: "", seq: 0, updated_at: "", deleted_at: null, space_id: S, sync_state: "clean", sync_error: null });
+    render(<MemoryRouter><Categories /></MemoryRouter>);
+    const btn = await screen.findByLabelText("Built-in categories can't be archived");
+    expect(btn).toBeDisabled();
+    fireEvent.click(btn);
+    await new Promise((r) => setTimeout(r, 0));
+    expect((await db.categories.get("sys1"))!.archived).toBe(false);
+  });
 });
 
 describe("Budgets", () => {
@@ -37,5 +47,21 @@ describe("Budgets", () => {
       expect(rows).toHaveLength(1);
       expect(rows[0]!.monthly_limit_cents).toBe(500000);
     });
+  });
+
+  it("commits a typed budget once; an unchanged blur afterwards doesn't re-dirty it", async () => {
+    await upsertCategory(S, { name: "food", kind: "expense", emoji: "🍛", color: "#B02E0C" });
+    render(<MemoryRouter><Budgets /></MemoryRouter>);
+    const input = await screen.findByPlaceholderText("No limit");
+    fireEvent.change(input, { target: { value: "5000" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.blur(input);
+    await waitFor(async () => expect(await db.budgets.toArray()).toHaveLength(1));
+    const first = (await db.budgets.toArray())[0]!;
+    fireEvent.blur(input); // blur again with no intervening edit
+    await new Promise((r) => setTimeout(r, 0));
+    const rows = await db.budgets.toArray();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.client_updated_at).toBe(first.client_updated_at);
   });
 });

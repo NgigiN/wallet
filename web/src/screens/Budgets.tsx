@@ -19,8 +19,12 @@ export function Budgets() {
   async function commit(categoryId: string) {
     const text = drafts[categoryId]; if (text === undefined) return;
     const cents = parseKesInput(text); const existing = byCat.get(categoryId);
-    if (cents) await setBudget(spaceId!, categoryId, cents); else if (existing) await deleteBudget(existing.id);
-    requestSync();
+    const unchanged = existing ? cents === existing.monthly_limit_cents : cents === null;
+    if (!unchanged) {
+      if (cents) await setBudget(spaceId!, categoryId, cents); else if (existing) await deleteBudget(existing.id);
+      requestSync();
+    }
+    setDrafts(({ [categoryId]: _drop, ...rest }) => rest);
   }
   return (
     <>
