@@ -7,6 +7,7 @@ import { SignUp } from "../screens/SignUp";
 import { Inbox } from "../screens/Inbox";
 import { AddTransaction } from "../screens/AddTransaction";
 import { TransactionDetail } from "../screens/TransactionDetail";
+import { Stats } from "../screens/Stats";
 
 const Todo = ({ name }: { name: string }) => <div className="empty">{name}</div>;
 
@@ -20,7 +21,7 @@ export function AppRoutes() {
           <Route element={<Shell />}>
             <Route index element={<Inbox />} />
             <Route path="add" element={<AddTransaction />} />
-            <Route path="stats" element={<Todo name="Stats" />} />
+            <Route path="stats" element={<Stats />} />
             <Route path="settings" element={<Todo name="Settings" />} />
           </Route>
           <Route path="tx/:id" element={<TransactionDetail />} />
