@@ -9,10 +9,10 @@ import { SectionCard } from "../components/SectionCard";
 import { EmptyState } from "../components/EmptyState";
 import { ReviewTab } from "./ReviewTab";
 import { range, step, type Period } from "../logic/period";
-import { biggestExpenses, categoryTotals, topCounterparties, topDays, totals, categorySpend } from "../logic/stats";
+import { biggestExpenses, categoryTotals, topCounterparties, topDays, totals } from "../logic/stats";
 import { budgetProgress } from "../logic/budget";
 import { formatKes } from "../logic/money";
-import { dayLabel } from "../logic/dates";
+import { dayLabel, toDayKey } from "../logic/dates";
 import { categoryStyle } from "../theme/categories";
 
 export function Stats() {
@@ -36,16 +36,16 @@ export function Stats() {
       <div className="tabs"><button className={tab === "period" ? "on" : ""} onClick={() => setTab("period")}>Period</button><button className={tab === "review" ? "on" : ""} onClick={() => setTab("review")}>Review</button></div>
       {tab === "review" ? <ReviewTab rows={rows} cats={cats.byId} period={period} refDate={ref} /> : <>
         <PeriodNav period={period} refDate={ref} earliest={earliest} onChange={(p, r) => { setPeriod(p); setRef(r); }} />
-        {empty ? <EmptyState title="Nothing here yet" hint="No transactions in this period." /> : <>
+        {empty ? <EmptyState title="Nothing here yet" hint="Nothing to show for this period." /> : <>
           <SectionCard title="Where it went">
             {byCat.map((c) => { const cat = cats.byId.get(c.categoryId); const s = categoryStyle(cat); const b = period === "month" ? budgetByCat.get(c.categoryId) : undefined;
-              if (b) { const bp = budgetProgress(categorySpend(rows, cats.byId, c.categoryId, from, to), b.monthly_limit_cents); const color = bp.level === 2 ? "var(--money-out)" : bp.level === 1 ? "var(--gold)" : s.color;
-                return <Bar key={c.categoryId} fraction={bp.fraction} color={color} emoji={s.emoji} label={c.name} value={formatKes(c.total)} sub={`${Math.round(bp.fraction * 100)}% of ${formatKes(b.monthly_limit_cents)}`} />; }
+              if (b) { const bp = budgetProgress(c.total, b.monthly_limit_cents); const color = bp.level === 2 ? "var(--money-out)" : bp.level === 1 ? "var(--gold)" : s.color;
+                return <Bar key={c.categoryId} fraction={bp.fraction} color={color} emoji={s.emoji} label={c.name} value={formatKes(c.total)} sub={`${Math.round((c.total / b.monthly_limit_cents) * 100)}% of ${formatKes(b.monthly_limit_cents)}`} />; }
               return <Bar key={c.categoryId} fraction={c.total / maxCat} color={s.color} emoji={s.emoji} label={c.name} value={formatKes(c.total)} sub={`${Math.round((c.total / Math.max(1, t.moneyOut)) * 100)}% of spend`} />; })}
-            {byCat.length === 0 && <div className="sub">Everything in this period is untagged.</div>}
+            {byCat.length === 0 && <div className="sub">{t.moneyOut > 0 ? "Everything in this period is untagged." : "No spending this period."}</div>}
           </SectionCard>
           <SectionCard title="Top spending days">{topDays(rows, cats.byId, from, to).map((d) => <div key={d.day} className="row"><div className="grow title">{dayLabel(d.day)}</div><span>{formatKes(d.total)}</span></div>)}</SectionCard>
-          <SectionCard title="Biggest expenses">{biggestExpenses(rows, cats.byId, from, to).map((x) => <div key={x.id} className="row"><span>{categoryStyle(x.category_id ? cats.byId.get(x.category_id) : undefined).emoji}</span><div className="grow"><div className="title">{x.counterparty}</div><div className="sub">{dayLabel(x.occurred_at.slice(0, 10))}</div></div><span>{formatKes(x.amount_cents + x.cost_cents)}</span></div>)}</SectionCard>
+          <SectionCard title="Biggest expenses">{biggestExpenses(rows, cats.byId, from, to).map((x) => <div key={x.id} className="row"><span>{categoryStyle(x.category_id ? cats.byId.get(x.category_id) : undefined).emoji}</span><div className="grow"><div className="title">{x.counterparty}</div><div className="sub">{dayLabel(toDayKey(x.occurred_at))}</div></div><span>{formatKes(x.amount_cents + x.cost_cents)}</span></div>)}</SectionCard>
           <SectionCard title="Top counterparties">{topCounterparties(rows, cats.byId, from, to).map((c) => <div key={c.name} className="row"><div className="grow title">{c.name}</div><span>{formatKes(c.total)}</span></div>)}</SectionCard>
         </>}
       </>}

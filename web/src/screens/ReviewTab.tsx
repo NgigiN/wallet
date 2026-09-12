@@ -19,7 +19,7 @@ export function ReviewTab({ rows, cats, period, refDate }: { rows: LocalTx[]; ca
     <>
       <SectionCard title="Spend trend">
         <div className="trend">{series.map((s, i) => <div key={s.label} className={`col ${i === series.length - 1 ? "cur" : ""}`} title={`${s.label}: ${formatKes(s.moneyOut)}`}><div className="vbar" style={{ height: `${Math.max(2, (s.moneyOut / max) * 80)}%` }} />{i === series.length - 1 && <div className="lbl">{formatKes(s.moneyOut)}</div>}</div>)}</div>
-        <div className="sub" style={{ marginTop: 8 }}>Savings rate: {series.map((s) => (s.savingsRate === null ? "—" : `${Math.round(s.savingsRate * 100)}%`)).join(" · ")}</div>
+        <div className="sub" style={{ marginTop: 8 }}>Savings rate: {series.map((s) => { if (s.savingsRate === null) return "—"; const pct = Math.round(s.savingsRate * 100); return pct < 0 ? `−${Math.abs(pct)}%` : `${pct}%`; }).join(" · ")}</div>
       </SectionCard>
       <SectionCard title="Category movers">
         {movers.length === 0 ? <div className="sub">Not enough history yet.</div> : movers.map((m) => { const s = categoryStyle(cats.get(m.categoryId)); return <div key={m.categoryId} className="row"><span>{s.emoji}</span><div className="grow"><div className="title">{m.name}</div><div className="sub">{formatKes(m.current)} vs {formatKes(m.previous)}</div></div><span className="badge">{m.isNew ? "new" : `${m.percentChange! >= 0 ? "+" : "−"}${Math.abs(m.percentChange!)}%`}</span></div>; })}
