@@ -10,14 +10,15 @@ import { TransactionDetail } from "../screens/TransactionDetail";
 import { Stats } from "../screens/Stats";
 import { Categories } from "../screens/Categories";
 import { Budgets } from "../screens/Budgets";
-
-const Todo = ({ name }: { name: string }) => <div className="empty">{name}</div>;
+import { Settings } from "../screens/Settings";
+import { Privacy } from "../screens/Privacy";
 
 export function AppRoutes() {
   return (
     <Routes>
       <Route path="/sign-in" element={<SignIn />} />
       <Route path="/sign-up" element={<SignUp />} />
+      <Route path="/privacy" element={<Privacy />} />
       <Route element={<RequireAuth />}>
         <Route element={<SpaceGate />}>
           <Route element={<Shell />}>
@@ -26,7 +27,7 @@ export function AppRoutes() {
             <Route path="stats" element={<Stats />} />
             <Route path="categories" element={<Categories />} />
             <Route path="budgets" element={<Budgets />} />
-            <Route path="settings" element={<Todo name="Settings" />} />
+            <Route path="settings" element={<Settings />} />
           </Route>
           <Route path="tx/:id" element={<TransactionDetail />} />
         </Route>
