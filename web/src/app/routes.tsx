@@ -5,6 +5,7 @@ import { SpaceGate } from "./SpaceGate";
 import { SignIn } from "../screens/SignIn";
 import { SignUp } from "../screens/SignUp";
 import { Inbox } from "../screens/Inbox";
+import { AddTransaction } from "../screens/AddTransaction";
 import { TransactionDetail } from "../screens/TransactionDetail";
 
 const Todo = ({ name }: { name: string }) => <div className="empty">{name}</div>;
@@ -18,7 +19,7 @@ export function AppRoutes() {
         <Route element={<SpaceGate />}>
           <Route element={<Shell />}>
             <Route index element={<Inbox />} />
-            <Route path="add" element={<Todo name="Add" />} />
+            <Route path="add" element={<AddTransaction />} />
             <Route path="stats" element={<Todo name="Stats" />} />
             <Route path="settings" element={<Todo name="Settings" />} />
           </Route>
