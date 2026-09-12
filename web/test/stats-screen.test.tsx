@@ -1,6 +1,6 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "../src/db/schema";
 import { createManualTransaction, setBudget, upsertCategory } from "../src/db/repo";
 import { setCurrentSpaceId } from "../src/db/meta";
@@ -9,9 +9,6 @@ import { Stats } from "../src/screens/Stats";
 
 const S = "s1";
 beforeEach(async () => { await Promise.all(db.tables.map((t) => t.clear())); await setCurrentSpaceId(S); });
-// Stats subscribes to live Dexie queries, so a leftover mounted tree from a previous
-// test keeps reacting to this file's beforeEach table clears; unmount it explicitly.
-afterEach(cleanup);
 
 describe("Stats period tab", () => {
   it("shows category bars with direct labels and a budget bar in month view", async () => {
