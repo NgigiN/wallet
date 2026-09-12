@@ -17,11 +17,16 @@ export function TransactionDetail() {
   const t = useLiveQuery(() => (id ? db.transactions.get(id) : Promise.resolve(undefined as LocalTx | undefined)), [id]);
   const [cat, setCat] = useState<string | null>(null); const [reason, setReason] = useState("");
   const [amount, setAmount] = useState(""); const [counterparty, setCounterparty] = useState(""); const [when, setWhen] = useState(""); const [dir, setDir] = useState<"in" | "out">("out");
+  const [error, setError] = useState<string | null>(null);
   useEffect(() => { if (t) { setCat(t.category_id); setReason(t.reason ?? ""); setAmount(String(t.amount_cents / 100)); setCounterparty(t.counterparty); setWhen(t.occurred_at.slice(0, 16)); setDir(t.direction === "in" ? "in" : "out"); } }, [t?.id]);
   if (!t) return <div className="empty">Not found</div>;
   const manual = t.source === "manual";
   async function save() {
-    if (manual) { const cents = parseKesInput(amount); if (!cents) return; await editManualTransaction(t!.id, { amount_cents: cents, counterparty, occurred_at: new Date(when).toISOString(), direction: dir }); }
+    if (manual) {
+      const cents = parseKesInput(amount); if (!cents) { setError("Enter an amount above zero."); return; }
+      if (!counterparty.trim()) { setError("Who was this with?"); return; }
+      await editManualTransaction(t!.id, { amount_cents: cents, counterparty, occurred_at: new Date(when).toISOString(), direction: dir });
+    }
     await tagTransaction(t!.id, cat, reason); requestSync(); nav(-1);
   }
   async function del() { if (confirm("Delete this transaction?")) { await softDeleteTransaction(t!.id); requestSync(); nav("/", { replace: true }); } }
@@ -38,6 +43,7 @@ export function TransactionDetail() {
           <div className="field"><label>When</label><input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} /></div></>}
         <div className="field"><label>Category</label><CategoryGrid categories={pickable} selected={cat} onSelect={setCat} /></div>
         <div className="field"><label>Reason (optional)</label><input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. lunch with Sam" /></div>
+        {error && <div className="error">{error}</div>}
         <button className="btn" onClick={() => void save()}>Save</button>
         <button className="btn danger" style={{ marginTop: 8 }} onClick={() => void del()}>Delete</button>
       </div>
