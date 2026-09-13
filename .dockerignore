@@ -1,0 +1,15 @@
+**/node_modules
+**/dist
+**/.env*
+server/compose.test.yml
+android
+financial-tracker
+.git
+.superpowers
+**/test-results
+**/playwright-report
+docs
+deploy
+.github
+web/e2e
+web/playwright.config.ts

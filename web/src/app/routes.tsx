@@ -1,0 +1,37 @@
+import { Route, Routes } from "react-router";
+import { Shell } from "./Shell";
+import { RequireAuth } from "./RequireAuth";
+import { SpaceGate } from "./SpaceGate";
+import { SignIn } from "../screens/SignIn";
+import { SignUp } from "../screens/SignUp";
+import { Inbox } from "../screens/Inbox";
+import { AddTransaction } from "../screens/AddTransaction";
+import { TransactionDetail } from "../screens/TransactionDetail";
+import { Stats } from "../screens/Stats";
+import { Categories } from "../screens/Categories";
+import { Budgets } from "../screens/Budgets";
+import { Settings } from "../screens/Settings";
+import { Privacy } from "../screens/Privacy";
+
+export function AppRoutes() {
+  return (
+    <Routes>
+      <Route path="/sign-in" element={<SignIn />} />
+      <Route path="/sign-up" element={<SignUp />} />
+      <Route path="/privacy" element={<Privacy />} />
+      <Route element={<RequireAuth />}>
+        <Route element={<SpaceGate />}>
+          <Route element={<Shell />}>
+            <Route index element={<Inbox />} />
+            <Route path="add" element={<AddTransaction />} />
+            <Route path="stats" element={<Stats />} />
+            <Route path="categories" element={<Categories />} />
+            <Route path="budgets" element={<Budgets />} />
+            <Route path="settings" element={<Settings />} />
+          </Route>
+          <Route path="tx/:id" element={<TransactionDetail />} />
+        </Route>
+      </Route>
+    </Routes>
+  );
+}

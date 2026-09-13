@@ -1,87 +1,45 @@
 name: Deploy to Server
 
+# Production deploys run only on version tags (or manually). CI (ci.yml) gates every PR;
+# this workflow builds the compose stack on the VPS from the tagged commit.
 on:
   push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: '1.24'
-
-    - name: Build
-      run: go build -v ./...
-
-    - name: Test
-      run: go test -v ./...
-
   deploy:
-    needs: test
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     concurrency:
-      group: deploy-${{ github.ref }}
+      group: deploy-prod
       cancel-in-progress: false
-
     steps:
-    - uses: actions/checkout@v4
-
-    - name: Deploy and Start Docker Container
-      env:
-        DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
-        DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
-        API_TOKEN: ${{ secrets.API_TOKEN }}
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.SERVER_HOST }}
-        username: ${{ secrets.SERVER_USER }}
-        key: ${{ secrets.SERVER_SSH_KEY }}
-        port: ${{ secrets.SERVER_PORT }}
-        envs: DISCORD_BOT_TOKEN,DISCORD_CHANNEL_ID,API_TOKEN
-        script: |
-          cd /home/deploy/opt/wallet
-          git pull origin main
-
-          chmod +x start_app.sh
-
-          # Pass the secrets to the script
-          DISCORD_BOT_TOKEN="${DISCORD_BOT_TOKEN}" DISCORD_CHANNEL_ID="${DISCORD_CHANNEL_ID}" API_TOKEN="${API_TOKEN}" ./start_app.sh
-
-    - name: Health Check
-      run: sleep 10
-
-    - name: Verify Docker Container is Running
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.SERVER_HOST }}
-        username: ${{ secrets.SERVER_USER }}
-        key: ${{ secrets.SERVER_SSH_KEY }}
-        port: ${{ secrets.SERVER_PORT }}
-        script: |
-          cd /home/deploy/opt/wallet
-
-          # Check if Docker container is running
-          if docker ps | grep -q financial-tracker-bot; then
-            echo "Docker container started successfully"
-            echo "Container status:"
-            docker ps --filter name=financial-tracker-bot
-            echo "Container logs (last 10 lines):"
-            docker logs --tail 10 financial-tracker-bot
-            echo "Health check:"
-            curl -s http://localhost:8080/health || echo "Health endpoint not responding"
-          else
-            echo "Docker container failed to start"
-            echo "All containers:"
-            docker ps -a
-            echo "Container logs:"
-            docker logs financial-tracker-bot || echo "No logs available"
-            exit 1
-          fi
+      - name: Deploy compose stack
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          DEPLOY_REF: ${{ github.ref_name }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT }}
+          envs: DEPLOY_REF
+          script: |
+            set -e
+            cd /home/deploy/opt/wallet
+            git fetch --tags origin
+            git checkout -q "${DEPLOY_REF}"
+            cd deploy
+            APP_VERSION="${DEPLOY_REF}" docker compose --env-file .env -f compose.yml up -d --build
+            for i in $(seq 1 30); do
+              if curl -fs http://127.0.0.1:8080/health >/dev/null; then echo "healthy"; exit 0; fi
+              sleep 2
+            done
+            echo "health check failed"; docker compose --env-file .env -f compose.yml logs --tail 50 api; exit 1
+      - name: Verify through the edge
+        run: |
+          for i in $(seq 1 10); do
+            if curl -fs https://wallet.samtama.lol/health | grep -q '"db":"ok"'; then echo "edge healthy"; exit 0; fi
+            sleep 6
+          done
+          echo "edge health check failed"; exit 1
