@@ -280,3 +280,27 @@ tombstone entirely — it pulls from its stored cursor and the delete row is gon
 so the row reappears locally. The sync protocol has no stale-cursor guard yet;
 until it does, such a device needs a full resync (clear local state and pull
 from `since=0`).
+
+---
+
+## v2 production (cutover 2026-09-13)
+
+Production is the compose project `wallet2` in `deploy/` (`docker compose --env-file .env -f compose.yml`),
+api on `127.0.0.1:8080` behind the `wallet.samtama.lol` vhost (`deploy/nginx-wallet.conf`: PWA at `/`, API at `/api`).
+Secrets live only in `deploy/.env` (template: `deploy/env.prod.example`). Deploys run from GitHub on `v*` tags
+(`.github/workflows/deploy.yml`); `main` is protected and nothing deploys on push.
+
+Cutover record:
+1. Vhost installed (sudo) while the v1 Go container still served — safe, headers only.
+2. `deploy/.env` created; live SQLite exported (`deploy/export-sqlite.py` → 85 rows, out 9,557.00, in 2,400.00) and
+   backed up encrypted to `r2:wallet/sqlite/sqlite-20260913-1109.db.age`.
+3. Stack up on 8081, smoke ok; `docker stop financial-tracker-bot`; `API_PORT=8080`; `up -d`; edge `/health` → v2.0.0.
+4. Owner signed up in the browser; `node dist/scripts/import-json.js /tmp/export.json <email>` inside the api container
+   → 85 inserted, sums identical; `LEGACY_SPACE_ID` set; api recreated; shim verified (`GET /api/transactions` → 85 rows).
+5. First prod backup `wallet-prod-20260913-1115.dump.age`; restore drill on a scratch Postgres: 85 | 1 | 99 = production.
+6. Discord bot token revoked; Uptime Kuma monitor "Wallet Peep" on `/health` every 3 min. Tag `v2.0.0` deploy run succeeded.
+
+Rollback (valid until the v1 container is removed): `docker compose --env-file .env -f compose.yml stop api && docker start financial-tracker-bot`
+(and `git checkout 9fdf63a -- deploy/nginx-wallet.conf` + reload nginx if the old API-only vhost is wanted back).
+Remove the v1 container and `data/transaction.db` after 2026-09-27: `docker rm financial-tracker-bot`.
+Weekly tombstone purge (documented above, not installed): for prod use `--env-file .env -f compose.yml`.
