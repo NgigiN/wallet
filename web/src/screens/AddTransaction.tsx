@@ -3,6 +3,7 @@ import { useNavigate } from "react-router";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, type LocalRule, type LocalTx } from "../db/schema";
 import { createManualTransaction } from "../db/repo";
+import { txWindow } from "../db/queries";
 import { requestSync } from "../sync/useSync";
 import { useSpaceId } from "../hooks/useSpace";
 import { useCategories } from "../hooks/useCategories";
@@ -16,8 +17,9 @@ const localNow = () => toLocalInput(new Date());
 export function AddTransaction() {
   const nav = useNavigate(); const spaceId = useSpaceId(); const { pickable } = useCategories(spaceId);
   const rules = useLiveQuery(() => (spaceId ? db.rules.where({ space_id: spaceId }).toArray() : Promise.resolve([] as LocalRule[])), [spaceId]) ?? [];
-  // .reverse() before sortBy reverses the sort order (descending by occurred_at).
-  const recent = useLiveQuery(() => (spaceId ? db.transactions.where({ space_id: spaceId }).reverse().sortBy("occurred_at") : Promise.resolve([] as LocalTx[])), [spaceId]) ?? [];
+  // Newest 50 straight off the [space_id+occurred_at] index: the datalist below shows 20
+  // names, so loading (and sorting) the whole table for it was pure waste.
+  const recent = useLiveQuery(() => (spaceId ? txWindow(spaceId).reverse().limit(50).toArray() : Promise.resolve([] as LocalTx[])), [spaceId]) ?? [];
   const suggestions = useMemo(() => [...new Set(recent.filter((t) => !t.deleted_at).map((t) => t.counterparty))].slice(0, 20), [recent]);
   const [dir, setDir] = useState<"out" | "in">("out"); const [amount, setAmount] = useState(""); const [counterparty, setCounterparty] = useState("");
   const [when, setWhen] = useState(localNow()); const [cat, setCat] = useState<string | null>(null); const [picked, setPicked] = useState(false); const [reason, setReason] = useState("");

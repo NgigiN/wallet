@@ -8,8 +8,10 @@ import { dayLabel } from "../logic/dates";
 import { categoryStyle } from "../theme/categories";
 
 const STEPS = [0, 25, 45, 65, 90];
+/** Periods in the trend strip. Stats reads back far enough to fill them. */
+export const TREND_POINTS = 8;
 export function ReviewTab({ rows, cats, period, refDate }: { rows: LocalTx[]; cats: Map<string, LocalCategory>; period: Period; refDate: Date }) {
-  const series = trendSeries(rows, cats, period, refDate, 8); const max = Math.max(1, ...series.map((s) => s.moneyOut));
+  const series = trendSeries(rows, cats, period, refDate, TREND_POINTS); const max = Math.max(1, ...series.map((s) => s.moneyOut));
   const movers = categoryMovers(rows, cats, period, refDate);
   const { from, to } = range(period, refDate); const now = Date.now(); const pace = paceProjection(totals(rows, cats, from, to).moneyOut, from, to, now);
   const yearAgo = new Date(refDate); yearAgo.setFullYear(yearAgo.getFullYear() - 1); yearAgo.setDate(1);

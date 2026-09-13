@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, type LocalTx } from "../db/schema";
+import { txWindow } from "../db/queries";
 import { useSpaceId } from "../hooks/useSpace";
 import { useCategories } from "../hooks/useCategories";
 import { useMask } from "../hooks/useMask";
@@ -17,11 +18,18 @@ export function Inbox() {
   const { byId } = useCategories(spaceId);
   const { hidden, toggle } = useMask();
   const [limit, setLimit] = useState(50);
-  const rows = useLiveQuery(() => (spaceId ? db.transactions.where({ space_id: spaceId }).toArray() : Promise.resolve([] as LocalTx[])), [spaceId]) ?? [];
-  const live = rows.filter((t) => !t.deleted_at);
-  const untagged = live.filter((t) => !t.category_id && t.direction !== "transfer").sort((a, b) => a.occurred_at.localeCompare(b.occurred_at));
-  const recent = live.filter((t) => t.category_id || t.direction === "transfer").sort((a, b) => b.occurred_at.localeCompare(a.occurred_at));
-  const now = new Date(); const { from, to } = range("month", now); const t = totals(live, byId, from, to);
+  const now = new Date(); const { from, to } = range("month", now);
+  const fromIso = new Date(from).toISOString(), toIso = new Date(to).toISOString();
+  // The untagged list is the one read with no bound: it is small by construction (the whole
+  // point of the screen is to empty it) and there is no index on "has no category".
+  const untaggedRows = useLiveQuery(() => (spaceId ? db.transactions.where({ space_id: spaceId }).filter((t) => t.category_id == null && !t.deleted_at && t.direction !== "transfer").toArray() : Promise.resolve([] as LocalTx[])), [spaceId]) ?? [];
+  const untagged = useMemo(() => [...untaggedRows].sort((a, b) => a.occurred_at.localeCompare(b.occurred_at)), [untaggedRows]);
+  // "Recent" never shows more than a couple of screens' worth, so take the newest 200 off
+  // the [space_id+occurred_at] index rather than loading the space's whole history.
+  const newest = useLiveQuery(() => (spaceId ? txWindow(spaceId).reverse().limit(200).toArray() : Promise.resolve([] as LocalTx[])), [spaceId]) ?? [];
+  const recent = useMemo(() => newest.filter((t) => !t.deleted_at && (t.category_id || t.direction === "transfer")), [newest]);
+  const monthRows = useLiveQuery(() => (spaceId ? txWindow(spaceId, fromIso, toIso).toArray() : Promise.resolve([] as LocalTx[])), [spaceId, fromIso, toIso]) ?? [];
+  const t = totals(monthRows, byId, from, to);
   return (
     <>
       <div className="hero">

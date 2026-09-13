@@ -13,9 +13,11 @@ import { categoryStyle } from "../theme/categories";
 import { copyFor } from "../api/errors";
 
 export function Budgets() {
-  const spaceId = useSpaceId(); const { rows, cats, budgets } = useSpaceData(spaceId);
+  const spaceId = useSpaceId();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  // Only this month's spending is shown, so only this month is read.
   const { from, to } = range("month", new Date());
+  const { rows, cats, budgets } = useSpaceData(spaceId, { from: new Date(from).toISOString(), to: new Date(to).toISOString() });
   const byCat = new Map(budgets.map((b) => [b.category_id, b]));
   async function commit(categoryId: string) {
     const text = drafts[categoryId]; if (text === undefined) return;

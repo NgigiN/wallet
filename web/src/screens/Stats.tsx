@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useSpaceId } from "../hooks/useSpace";
 import { useSpaceData } from "../hooks/useSpaceData";
 import { useMask } from "../hooks/useMask";
@@ -7,7 +7,7 @@ import { Bar } from "../components/Bar";
 import { PeriodNav } from "../components/PeriodNav";
 import { SectionCard } from "../components/SectionCard";
 import { EmptyState } from "../components/EmptyState";
-import { ReviewTab } from "./ReviewTab";
+import { ReviewTab, TREND_POINTS } from "./ReviewTab";
 import { range, step, type Period } from "../logic/period";
 import { biggestExpenses, categoryTotals, topCounterparties, topDays, totals } from "../logic/stats";
 import { budgetProgress } from "../logic/budget";
@@ -16,11 +16,25 @@ import { dayLabel, toDayKey } from "../logic/dates";
 import { categoryStyle } from "../theme/categories";
 
 export function Stats() {
-  const spaceId = useSpaceId(); const { rows, cats, budgets, earliest } = useSpaceData(spaceId);
+  const spaceId = useSpaceId();
   const [tab, setTab] = useState<"period" | "review">("period");
   const [period, setPeriod] = useState<Period>("month"); const [ref, setRef] = useState(new Date());
   const { hidden, toggle } = useMask();
   const { from, to } = range(period, ref); const prev = range(period, step(period, ref, -1));
+  // Read only what the visible tab can reach: this period plus the previous one (the "vs
+  // previous" line), or — on the review tab — whichever reaches further back, the trend
+  // strip's periods or the 12-month spend calendar.
+  const dataWindow = useMemo(() => {
+    if (tab !== "review") return { from: new Date(prev.from).toISOString(), to: new Date(to).toISOString() };
+    let oldestTrendRef = ref;
+    for (let i = 1; i < TREND_POINTS; i++) oldestTrendRef = step(period, oldestTrendRef, -1);
+    const calendarFrom = new Date(ref.getFullYear() - 1, ref.getMonth(), 1).getTime();
+    return {
+      from: new Date(Math.min(range(period, oldestTrendRef).from, calendarFrom)).toISOString(),
+      to: new Date(Math.max(to, range("month", ref).to)).toISOString(),
+    };
+  }, [tab, period, ref, prev.from, to]);
+  const { rows, cats, budgets, earliest } = useSpaceData(spaceId, dataWindow);
   const t = totals(rows, cats.byId, from, to); const p = totals(rows, cats.byId, prev.from, prev.to);
   const delta = p.moneyOut > 0 ? Math.round(((t.moneyOut - p.moneyOut) / p.moneyOut) * 100) : null;
   const byCat = categoryTotals(rows, cats.byId, from, to); const maxCat = byCat[0]?.total ?? 1;
