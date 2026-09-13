@@ -20,3 +20,13 @@ export async function getDeviceId() {
 export const getLastSyncAt = async (spaceId: string) => await get(`lastSync:${spaceId}`);
 export const setLastSyncAt = (spaceId: string, iso: string) => set(`lastSync:${spaceId}`, iso);
 export const clearAllLocal = () => Promise.all(db.tables.map((t) => t.clear()));
+/**
+ * Sign-out wipe. Everything goes except the device id: it identifies this browser to the
+ * server, so minting a new one on every sign-out would leave a trail of dead devices in the
+ * user's device list.
+ */
+export async function clearAllLocalKeepingDevice() {
+  const deviceId = await getDeviceId();
+  await clearAllLocal();
+  await db.meta.put({ key: "deviceId", value: deviceId });
+}

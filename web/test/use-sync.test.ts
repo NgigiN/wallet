@@ -6,11 +6,12 @@ vi.mock("../src/sync/engine", () => ({ runSync: vi.fn(async () => ({ pushed: 0, 
 // The lock lives at module scope, so each case gets a fresh module registry.
 async function load() {
   const { runSync } = await import("../src/sync/engine");
-  const { useSync } = await import("../src/sync/useSync");
+  const sync = await import("../src/sync/useSync");
   // The mock instance survives resetModules; the call log must not.
   vi.mocked(runSync).mockClear();
-  return { runSync: vi.mocked(runSync), useSync };
+  return { runSync: vi.mocked(runSync), useSync: sync.useSync, sync };
 }
+const SUMMARY = { pushed: 0, rejected: 0, pulled: 0, cursor: 0 };
 
 beforeEach(() => { vi.resetModules(); vi.useFakeTimers(); });
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
@@ -19,7 +20,7 @@ describe("useSync lock", () => {
   it("coalesces an overlapping trigger into exactly one extra run", async () => {
     const { runSync, useSync } = await load();
     let release!: () => void;
-    runSync.mockImplementation(() => new Promise((resolve) => { release = () => resolve({ pushed: 0, rejected: 0, pulled: 0, cursor: 0 }); }));
+    runSync.mockImplementation(() => new Promise((resolve) => { release = () => resolve(SUMMARY); }));
 
     const { result } = renderHook(() => useSync("s1")); // mount fires the first run
     expect(runSync).toHaveBeenCalledTimes(1);
@@ -46,5 +47,26 @@ describe("useSync lock", () => {
     await act(async () => { void result.current.syncNow(); });
     expect(runSync).toHaveBeenCalledTimes(2);
     expect(console.warn).toHaveBeenCalled();
+  });
+
+  it("refuses to start a run after sign-out, and awaitSyncIdle waits for the one in flight", async () => {
+    const { runSync, useSync, sync } = await load();
+    let release!: () => void;
+    runSync.mockImplementation(() => new Promise((resolve) => { release = () => resolve(SUMMARY); }));
+
+    const { result } = renderHook(() => useSync("s1"));
+    expect(runSync).toHaveBeenCalledTimes(1);
+
+    sync.stopSync();
+    let idle = false;
+    const waiting = sync.awaitSyncIdle().then(() => { idle = true; });
+
+    await act(async () => { void result.current.syncNow(); });
+    expect(runSync).toHaveBeenCalledTimes(1); // nothing new starts once sign-out has begun
+    expect(idle).toBe(false); // and the store must not be cleared yet
+
+    await act(async () => { release(); await waiting; });
+    expect(idle).toBe(true);
+    expect(sync.isStopped()).toBe(true);
   });
 });

@@ -96,9 +96,10 @@ async function applyPulled(spaceId: string, t: Table, rows: any[]) {
   });
 }
 
-async function pullAll(spaceId: string, api: SyncApi): Promise<number> {
+async function pullAll(spaceId: string, api: SyncApi, shouldAbort: () => boolean): Promise<number> {
   let pulled = 0;
   for (;;) {
+    if (shouldAbort()) break;
     const since = await getCursor(spaceId);
     const page = await api.pullPage(spaceId, since);
     for (const t of TABLES) { await applyPulled(spaceId, t, page[t]); pulled += page[t].length; }
@@ -108,10 +109,18 @@ async function pullAll(spaceId: string, api: SyncApi): Promise<number> {
   return pulled;
 }
 
-export async function runSync(spaceId: string, api: SyncApi = { pullPage, pushBatch }): Promise<SyncSummary> {
+/**
+ * `shouldAbort` is checked between chunks and between pull pages: sign-out clears the local
+ * store, and a run still writing into it afterwards would leave rows (and a cursor) behind
+ * for the next account to inherit. An aborted run reports what it managed before stopping
+ * and leaves `lastSyncAt` alone.
+ */
+export async function runSync(spaceId: string, api: SyncApi = { pullPage, pushBatch }, shouldAbort: () => boolean = () => false): Promise<SyncSummary> {
   let pushed = 0, rejected = 0, pulled = 0;
+  const stop = async (): Promise<SyncSummary> => ({ pushed, rejected, pulled, cursor: await getCursor(spaceId) });
   const batches = chunk(await collectDirty(spaceId));
   for (const b of batches) {
+    if (shouldAbort()) return stop();
     const body: Record<string, unknown[]> = {};
     for (const t of TABLES) if (b[t].length) body[t] = b[t].map(toWireIn);
     const res = await api.pushBatch(spaceId, body);
@@ -121,9 +130,10 @@ export async function runSync(spaceId: string, api: SyncApi = { pullPage, pushBa
     await db.transaction("rw", db.transactions, db.categories, db.budgets, db.rules, async () => {
       for (const r of res.results) { await applyResult(spaceId, r.table, r); if (r.status === "rejected") rejected++; else pushed++; }
     });
-    pulled += await pullAll(spaceId, api);
+    pulled += await pullAll(spaceId, api, shouldAbort);
   }
-  if (batches.length === 0) pulled += await pullAll(spaceId, api);
+  if (batches.length === 0) pulled += await pullAll(spaceId, api, shouldAbort);
+  if (shouldAbort()) return stop();
   await setLastSyncAt(spaceId, new Date().toISOString());
   return { pushed, rejected, pulled, cursor: await getCursor(spaceId) };
 }

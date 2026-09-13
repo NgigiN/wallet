@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { db, nowIso } from "../src/db/schema";
 import { createManualTransaction, setBudget, upsertCategory } from "../src/db/repo";
-import { getCursor, setCursor } from "../src/db/meta";
+import { getCursor, getLastSyncAt, setCursor } from "../src/db/meta";
 import { runSync } from "../src/sync/engine";
 
 const S = "space-1";
@@ -133,6 +133,16 @@ describe("runSync", () => {
     await expect(runSync(S, api)).rejects.toMatchObject({ code: "network" });
     const row = (await db.transactions.get(id))!;
     expect(row.reason).toBe("mine"); expect(row.sync_state).toBe("dirty");
+  });
+  it("writes nothing once sign-out has stopped it", async () => {
+    const id = await createManualTransaction(S, { direction: "out", amount_cents: 100, counterparty: "x", occurred_at: "2026-09-12T10:00:00.000Z", category_id: null, reason: null });
+    const { api } = fakeApi();
+    const out = await runSync(S, api, () => true);
+    expect(api.pushBatch).not.toHaveBeenCalled();
+    expect(api.pullPage).not.toHaveBeenCalled();
+    expect(await getLastSyncAt(S)).toBeNull();
+    expect((await db.transactions.get(id))!.sync_state).toBe("dirty");
+    expect(out).toMatchObject({ pushed: 0, pulled: 0 });
   });
   it("chunks pushes at 1000 rows, categories before transactions", async () => {
     await setBudget(S, "c1", 100);

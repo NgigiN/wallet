@@ -18,6 +18,22 @@ let runToken = 0;
 // promise) would otherwise wedge `running` for the life of the tab and silently stop every
 // later sync. Past this age the lock is assumed dead and taken over.
 const RUN_WATCHDOG_MS = 60_000;
+// Set the moment sign-out begins. The engine checks it between chunks and pages so a run
+// already in flight stops writing rows into a store that is about to be wiped (and stops
+// re-creating the cursor meta the clear just removed).
+let stopped = false;
+const idleWaiters = new Set<() => void>();
+export const isStopped = () => stopped;
+/** Sign-out: no further runs start, and the one in flight unwinds at its next checkpoint. */
+export const stopSync = () => { stopped = true; };
+/** A session has started (the hook mounted): syncing is allowed again. */
+export const startSync = () => { stopped = false; };
+/** Resolves once no run holds the lock, so the caller can clear the local store safely. */
+export function awaitSyncIdle(): Promise<void> {
+  if (!running) return Promise.resolve();
+  return new Promise<void>((resolve) => { idleWaiters.add(resolve); });
+}
+const releaseIdleWaiters = () => { const waiting = [...idleWaiters]; idleWaiters.clear(); for (const resolve of waiting) resolve(); };
 
 /** Screens call this after a local write; the engine runs 1.5 s later, coalescing bursts. */
 export function requestSync() {
@@ -29,7 +45,7 @@ export function useSync(spaceId: string | null) {
   const [syncing, setSyncing] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
   const syncNow = useCallback(async () => {
-    if (!spaceId || !navigator.onLine) return;
+    if (!spaceId || !navigator.onLine || stopped) return;
     if (running) {
       if (Date.now() - runStartedAt <= RUN_WATCHDOG_MS) { rerun = true; return; }
       console.warn(`sync: a run has been in flight for ${Math.round((Date.now() - runStartedAt) / 1000)}s; taking the lock over`);
@@ -37,12 +53,16 @@ export function useSync(spaceId: string | null) {
     }
     running = true; runStartedAt = Date.now(); const token = ++runToken; setSyncing(true);
     try {
-      do { rerun = false; await runSync(spaceId); runStartedAt = Date.now(); } while (rerun);
+      do { rerun = false; await runSync(spaceId, undefined, isStopped); runStartedAt = Date.now(); } while (rerun && !stopped);
       setLastError(null);
     } catch (e) { setLastError(e instanceof ApiError ? copyFor(e.code) : "Sync failed."); }
-    finally { if (token === runToken) { rerun = false; running = false; } setSyncing(false); }
+    finally {
+      if (token === runToken) { rerun = false; running = false; releaseIdleWaiters(); }
+      setSyncing(false);
+    }
   }, [spaceId]);
   useEffect(() => {
+    startSync();
     void syncNow();
     const onOnline = () => void syncNow();
     const onVisible = () => { if (document.visibilityState === "visible") void syncNow(); };

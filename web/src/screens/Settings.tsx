@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { useLiveQuery } from "dexie-react-hooks";
-import { authClient, useSession } from "../api/auth";
+import { signOutEverywhere, useSession } from "../api/auth";
 import { APP_VERSION } from "../api/client";
 import { listDevices, type DeviceWire } from "../api/devices";
-import { clearAllLocal, getLastSyncAt } from "../db/meta";
+import { getLastSyncAt } from "../db/meta";
 import { useSpaceId } from "../hooks/useSpace";
 import { useSpaces, useSyncStatus } from "../app/SpaceGate";
 import { SectionCard } from "../components/SectionCard";
@@ -17,7 +17,7 @@ export function Settings() {
   const lastSync = useLiveQuery(() => (spaceId ? getLastSyncAt(spaceId) : Promise.resolve(null)), [spaceId]);
   useEffect(() => { void listDevices().then(setDevices).catch(() => {}); }, []);
   const space = spaces.find((s) => s.id === spaceId);
-  async function signOut() { await authClient.signOut(); await clearAllLocal(); nav("/sign-in", { replace: true }); }
+  async function signOut() { try { await signOutEverywhere(); } finally { nav("/sign-in", { replace: true }); } }
   return (
     <>
       <div className="hero"><div className="dim">{data?.user.email}</div><div className="big">{data?.user.name ?? "You"}</div><div className="dim">Space: {space?.name ?? "—"} ({space?.kind ?? ""})</div></div>
