@@ -51,7 +51,11 @@ describe("TransactionDetail", () => {
   it("refuses to save a manual row with no date, and says so", async () => {
     await seed();
     renderDetail();
-    fireEvent.change(await screen.findByLabelText("When"), { target: { value: "" } });
+    const when = await screen.findByLabelText<HTMLInputElement>("When");
+    // The screen fills this input from an effect that runs after the row loads; clearing it
+    // before that lands would simply be overwritten.
+    await waitFor(() => expect(when.value).not.toBe(""));
+    fireEvent.change(when, { target: { value: "" } });
     fireEvent.click(screen.getByText("Save"));
     expect(await screen.findByText("Pick a date and time.")).toBeInTheDocument();
     expect((await db.transactions.get("t1"))!.sync_state).toBe("clean");

@@ -35,8 +35,6 @@ a { color: inherit; }
 .sheet-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: flex-end; justify-content: center; z-index: 20; }
 .sheet { background: var(--surface); width: 100%; max-width: 640px; border-radius: var(--radius-lg) var(--radius-lg) 0 0; padding: 16px 16px calc(16px + var(--safe-bottom)); max-height: 90dvh; overflow: auto; }
 .empty { text-align: center; color: var(--text-dim); padding: 40px 16px; }
-.bar { height: 8px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
-.bar > i { display: block; height: 100%; background: var(--bar-color, var(--accent)); }
 .iconbtn { background: transparent; border: none; color: inherit; font-size: 20px; padding: 6px; }
 @media (min-width: 900px) {
   .shell { flex-direction: row; }

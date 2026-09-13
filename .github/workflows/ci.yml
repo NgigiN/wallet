@@ -95,7 +95,11 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          # Both lockfiles: this job installs server deps too (see below), and keying the
+          # cache on web's alone serves a stale server node_modules after a server bump.
+          cache-dependency-path: |
+            web/package-lock.json
+            server/package-lock.json
       - run: npm ci
         working-directory: web
       # The e2e webServer builds and starts the real API, so server deps are needed too.

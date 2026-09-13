@@ -42,5 +42,7 @@ export default defineConfig({
       "/health": { target: "http://127.0.0.1:8080", changeOrigin: false },
     },
   },
-  build: { sourcemap: true },
+  // "hidden" still emits the maps for stack symbolication but drops the sourceMappingURL
+  // comment, so the bundle does not advertise them to anyone poking at the deployed app.
+  build: { sourcemap: "hidden" },
 });

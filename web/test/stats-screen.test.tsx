@@ -18,8 +18,10 @@ describe("Stats period tab", () => {
     await setBudget(S, food, 200000);
     render(<MemoryRouter><MaskProvider><Stats /></MaskProvider></MemoryRouter>);
     expect(await screen.findByText("Where it went")).toBeInTheDocument();
-    expect(screen.getByText("food")).toBeInTheDocument();
-    expect(screen.getByText(/of Ksh 2,000/)).toBeInTheDocument(); // budget progress label
+    // findByText, not getByText: rows and categories arrive from separate live queries, and
+    // a bar rendered before its category lands shows "?" for one frame.
+    expect(await screen.findByText("food")).toBeInTheDocument();
+    expect(await screen.findByText(/of Ksh 2,000/)).toBeInTheDocument(); // budget progress label
     expect(screen.getByText("Top counterparties")).toBeInTheDocument();
   });
   it("shows the empty state when the period has no rows", async () => {
@@ -32,7 +34,7 @@ describe("Stats period tab", () => {
     await setBudget(S, food, 100000);
     render(<MemoryRouter><MaskProvider><Stats /></MaskProvider></MemoryRouter>);
     const whereItWent = (await screen.findByText("Where it went")).closest("section")!;
-    expect(within(whereItWent).getByText(/150% of Ksh 1,000/)).toBeInTheDocument();
+    expect(await within(whereItWent).findByText(/150% of Ksh 1,000/)).toBeInTheDocument();
     expect(within(whereItWent).getByText("Ksh 1,500")).toBeInTheDocument();
   });
   it("shows 'No spending this period.' for an income-only period, not the untagged copy", async () => {
@@ -50,6 +52,6 @@ describe("Stats period tab", () => {
     await createManualTransaction(S, { direction: "out", amount_cents: 90000, counterparty: "Kiosk", occurred_at: occurredAt, category_id: food, reason: null });
     render(<MemoryRouter><MaskProvider><Stats /></MaskProvider></MemoryRouter>);
     const biggest = (await screen.findByText("Biggest expenses")).closest("section")!;
-    expect(within(biggest).getByText(dayLabel(toDayKey(occurredAt)))).toBeInTheDocument();
+    expect(await within(biggest).findByText(dayLabel(toDayKey(occurredAt)))).toBeInTheDocument();
   });
 });

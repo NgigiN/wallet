@@ -4,7 +4,7 @@ import { formatKes } from "../logic/money";
 import { range, type Period } from "../logic/period";
 import { dailyTotals, totals } from "../logic/stats";
 import { categoryMovers, heatmapBuckets, paceProjection, trendSeries } from "../logic/review";
-import { dayLabel } from "../logic/dates";
+import { dayKeyToDate, dayLabel } from "../logic/dates";
 import { categoryStyle } from "../theme/categories";
 
 const STEPS = [0, 25, 45, 65, 90];
@@ -14,9 +14,12 @@ export function ReviewTab({ rows, cats, period, refDate }: { rows: LocalTx[]; ca
   const series = trendSeries(rows, cats, period, refDate, TREND_POINTS); const max = Math.max(1, ...series.map((s) => s.moneyOut));
   const movers = categoryMovers(rows, cats, period, refDate);
   const { from, to } = range(period, refDate); const now = Date.now(); const pace = paceProjection(totals(rows, cats, from, to).moneyOut, from, to, now);
-  const yearAgo = new Date(refDate); yearAgo.setFullYear(yearAgo.getFullYear() - 1); yearAgo.setDate(1);
+  const yearAgo = new Date(refDate); yearAgo.setFullYear(yearAgo.getFullYear() - 1); yearAgo.setDate(1); yearAgo.setHours(0, 0, 0, 0);
   const daily = dailyTotals(rows, cats, yearAgo.getTime(), range("month", refDate).to); const buckets = heatmapBuckets(daily);
-  const lead = (new Date(daily[0]?.day ?? refDate).getDay() + 6) % 7;
+  // new Date("2026-09-01") is UTC midnight, i.e. the day before in any zone behind UTC,
+  // which slid the whole calendar one column. dayKeyToDate builds the local day it names.
+  const firstDay = daily[0];
+  const lead = ((firstDay ? dayKeyToDate(firstDay.day) : refDate).getDay() + 6) % 7;
   return (
     <>
       <SectionCard title="Spend trend">

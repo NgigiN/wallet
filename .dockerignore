@@ -8,3 +8,8 @@ financial-tracker
 .superpowers
 **/test-results
 **/playwright-report
+docs
+deploy
+.github
+web/e2e
+web/playwright.config.ts
