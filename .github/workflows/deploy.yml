@@ -1,14 +1,19 @@
 name: Deploy to Server
 
-# Production deploys run only on version tags (or manually). CI (ci.yml) gates every PR;
-# this workflow builds the compose stack on the VPS from the tagged commit.
+# Production deploys run only on version tags (or manually). The full CI suite runs first
+# (reusable ci.yml); the VPS then builds the compose stack from the tagged commit and rolls
+# back to the previous tag if the health check fails.
 on:
   push:
     tags: [ 'v*' ]
   workflow_dispatch:
 
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   deploy:
+    needs: ci
     runs-on: ubuntu-latest
     concurrency:
       group: deploy-prod
@@ -27,15 +32,20 @@ jobs:
           script: |
             set -e
             cd /home/deploy/opt/wallet
-            git fetch --tags origin
-            git checkout -q "${DEPLOY_REF}"
+            PREV="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+            git fetch --force --tags --prune origin
+            git checkout -q --detach "origin/${DEPLOY_REF}" 2>/dev/null || git checkout -q --detach "${DEPLOY_REF}"
             cd deploy
-            APP_VERSION="${DEPLOY_REF}" docker compose --env-file .env -f compose.yml up -d --build
-            for i in $(seq 1 30); do
-              if curl -fs http://127.0.0.1:8080/health >/dev/null; then echo "healthy"; exit 0; fi
-              sleep 2
-            done
-            echo "health check failed"; docker compose --env-file .env -f compose.yml logs --tail 50 api; exit 1
+            up() { APP_VERSION="$1" docker compose --env-file .env -f compose.yml up -d --build; }
+            healthy() { for i in $(seq 1 30); do curl -fs http://127.0.0.1:8080/health | grep -q "\"db\":\"ok\"" && return 0; sleep 2; done; return 1; }
+            up "${DEPLOY_REF}"
+            if healthy; then echo "healthy at ${DEPLOY_REF}"; docker image prune -f >/dev/null; exit 0; fi
+            echo "health check failed at ${DEPLOY_REF}"; docker compose --env-file .env -f compose.yml logs --tail 50 api
+            if [ -n "$PREV" ] && [ "$PREV" != "${DEPLOY_REF}" ]; then
+              echo "rolling back to ${PREV}"; cd .. && git checkout -q --detach "${PREV}" && cd deploy && up "${PREV}"
+              healthy && echo "rolled back to ${PREV}" || echo "ROLLBACK FAILED — manual intervention"
+            fi
+            exit 1
       - name: Verify through the edge
         run: |
           for i in $(seq 1 10); do

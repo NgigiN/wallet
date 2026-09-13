@@ -4,7 +4,7 @@ Executed inline by the controller on 2026-09-13 at the user's request, with one 
 
 ## Rulings
 - R-1C-1: the import reads a JSON export of the SQLite file (`deploy/export-sqlite.py`, Python stdlib) instead of opening SQLite from Node, so no native SQLite driver enters the image. Cost if wrong: one extra step in the runbook.
-- R-1C-2: the user creates their production account themselves in the browser after cutover; the import then targets the existing user by email (it still creates a user with a random password only when the email is unknown, per spec). Cost if wrong: none; keeps the password out of the transcript.
+- R-1C-2: the user creates their production account themselves in the browser after cutover; the import targets the existing user by email and REFUSES an unknown email (deviation from spec §12.2's random-password creation: there is no password reset yet, so a random password would lock the account). Cost if wrong: none; keeps the password out of the transcript.
 - R-1C-3: the production nginx vhost is replaced (the current one has an API-only CSP that blocks the PWA); this is the one sudo step of the cutover. Cost if wrong: the site serves the old CSP until fixed.
 - R-1C-4: the Go `test` CI job is removed with the Go code; branch protection contexts become `android-test`, `server-test`, `web-test`.
 

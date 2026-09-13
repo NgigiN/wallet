@@ -4,7 +4,7 @@
  * push in LEGACY_SPACE_ID, captured by that space's owner. Removed in Phase 1D.
  */
 import { timingSafeEqual } from "node:crypto";
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNotNull, isNull } from "drizzle-orm";
 import { Hono } from "hono";
 import { v5 as uuidv5 } from "uuid";
 import { z } from "zod";
@@ -13,6 +13,7 @@ import { categories, member, transactions } from "../db/schema.js";
 import type { Env } from "../env.js";
 import { resolveCategoryByName } from "../services/categories.js";
 import { pushChanges } from "../services/sync.js";
+import { clientIp, rateLimit } from "../middleware/rate-limit.js";
 
 const LEGACY_NS = "6ba7b811-9dad-11d1-80b4-00c04fd430c8"; // uuid v5 URL namespace
 export const legacyTxId = (spaceId: string, txnId: string, direction: string) => uuidv5(`wallet-legacy/${spaceId}/${txnId}/${direction}`, LEGACY_NS);
@@ -39,6 +40,8 @@ function tokenOk(header: string | undefined, expected: string) {
 
 export function legacyRoutes(db: Db, env: Pick<Env, "LEGACY_API_TOKEN" | "LEGACY_SPACE_ID">) {
   const r = new Hono();
+  // The only bearer-token route in v2: throttle guessing like the auth routes are throttled.
+  r.use("*", rateLimit({ windowMs: 60_000, max: 60, keyFn: clientIp }));
   r.use("*", async (c, next) => {
     if (!env.LEGACY_API_TOKEN || !env.LEGACY_SPACE_ID) return c.json({ error: "shim_unconfigured" }, 503);
     if (!tokenOk(c.req.header("authorization"), env.LEGACY_API_TOKEN)) return c.json({ error: "unauthorized" }, 401);
@@ -61,10 +64,16 @@ export function legacyRoutes(db: Db, env: Pick<Env, "LEGACY_API_TOKEN" | "LEGACY
       eq(transactions.spaceId, spaceId), eq(transactions.source, w.source), eq(transactions.receiptCode, w.transaction_id), eq(transactions.direction, w.direction),
     )).limit(1);
     if (existing && existing.categoryId === categoryId && (existing.reason ?? null) === reason) return c.json({ created: false });
+    // A v1 re-post only ever changes category/reason (dao.tag). When the row already exists — imported
+    // or previously posted — carry the STORED immutable fields so tiny normalisation differences between
+    // the importer and the phone (balance 0 vs null, blank counterparty) can never trip `immutable`.
+    const immutable = existing
+      ? { source: existing.source, receipt_code: existing.receiptCode, direction: existing.direction, amount_cents: existing.amountCents, cost_cents: existing.costCents,
+          balance_cents: existing.balanceCents, counterparty: existing.counterparty, occurred_at: existing.occurredAt.toISOString() }
+      : { source: w.source, receipt_code: w.transaction_id, direction: w.direction, amount_cents: toCents(w.amount), cost_cents: toCents(w.cost),
+          balance_cents: w.balance ? toCents(w.balance) : null, counterparty: w.counterparty.trim() || "Unknown", occurred_at: occurred.toISOString() };
     const res = await pushChanges(db, { spaceId, userId: owner.userId }, { transactions: [{
-      id: legacyTxId(spaceId, w.transaction_id, w.direction), source: w.source, receipt_code: w.transaction_id, direction: w.direction,
-      amount_cents: toCents(w.amount), cost_cents: toCents(w.cost), balance_cents: w.balance ? toCents(w.balance) : null,
-      counterparty: w.counterparty, occurred_at: occurred.toISOString(), category_id: categoryId, reason,
+      id: existing?.id ?? legacyTxId(spaceId, w.transaction_id, w.direction), ...immutable, category_id: categoryId, reason,
       client_updated_at: new Date().toISOString(), deleted_at: null,
     }] });
     const result = res.results[0];
@@ -77,9 +86,11 @@ export function legacyRoutes(db: Db, env: Pick<Env, "LEGACY_API_TOKEN" | "LEGACY
     const spaceId = env.LEGACY_SPACE_ID!;
     const rows = await db.select({ t: transactions, catName: categories.name }).from(transactions)
       .leftJoin(categories, eq(categories.id, transactions.categoryId))
-      .where(and(eq(transactions.spaceId, spaceId), isNull(transactions.deletedAt))).orderBy(asc(transactions.occurredAt));
+      // Manual rows (web-created, no receipt code) are invisible to the v1 app: it has no concept of them
+      // and re-tagging one on the phone would come back as a new receipt and duplicate it.
+      .where(and(eq(transactions.spaceId, spaceId), isNull(transactions.deletedAt), isNotNull(transactions.receiptCode))).orderBy(asc(transactions.occurredAt));
     return c.json(rows.map(({ t, catName }) => ({
-      transaction_id: t.receiptCode ?? t.id, amount: t.amountCents / 100, direction: t.direction, source: t.source === "manual" ? "mpesa" : t.source,
+      transaction_id: t.receiptCode!, amount: t.amountCents / 100, direction: t.direction, source: t.source,
       counterparty: t.counterparty, date_time: t.occurredAt.toISOString(), balance: (t.balanceCents ?? 0) / 100, cost: t.costCents / 100,
       category: catName ?? "", reason: t.reason ?? "",
     })));
