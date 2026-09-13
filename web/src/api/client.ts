@@ -11,14 +11,22 @@ let upgradeHook: ((min: string) => void) | null = null;
 export const onUnauthorized = (fn: () => void) => { unauthorizedHook = fn; };
 export const onUpgradeRequired = (fn: (min: string) => void) => { upgradeHook = fn; };
 
+/** A request that has not answered by now is treated as a network failure: without this a
+ *  stalled connection holds the sync lock (and the caller's spinner) open indefinitely. */
+export const REQUEST_TIMEOUT_MS = 20_000;
+
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set("x-client", `web/${APP_VERSION}`);
   if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json");
+  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  const signal = init.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
   let res: Response;
   try {
-    res = await fetch(path, { ...init, headers, credentials: "include" });
+    res = await fetch(path, { ...init, headers, credentials: "include", signal });
   } catch {
+    // A timeout, a caller-side abort and a dead network are the same thing to the UI: the
+    // request never reached the server, so the local change is still pending.
     throw new ApiError(0, "network");
   }
   if (res.status === 204) return undefined as T;

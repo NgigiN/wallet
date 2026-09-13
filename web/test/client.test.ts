@@ -27,6 +27,24 @@ describe("apiFetch", () => {
     await expect(apiFetch("/api/v2/me")).rejects.toBeInstanceOf(ApiError);
     expect(hook).toHaveBeenCalled();
   });
+  it("gives every request an abort signal and reports a timeout as a network failure", async () => {
+    const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async () => {
+      throw new DOMException("The operation timed out.", "TimeoutError");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(apiFetch("/api/v2/me")).rejects.toMatchObject({ status: 0, code: "network" });
+    expect(fetchMock.mock.calls[0]![1]!.signal).toBeInstanceOf(AbortSignal);
+  });
+  it("keeps the caller's own signal alongside the timeout", async () => {
+    const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async () => json(200, { ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const caller = new AbortController();
+    await apiFetch("/api/v2/me", { signal: caller.signal });
+    const signal = fetchMock.mock.calls[0]![1]!.signal!;
+    expect(signal.aborted).toBe(false);
+    caller.abort();
+    expect(signal.aborted).toBe(true);
+  });
   it("wraps network failures as ApiError status 0", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
     await expect(apiFetch("/api/v2/me")).rejects.toMatchObject({ status: 0, code: "network" });
