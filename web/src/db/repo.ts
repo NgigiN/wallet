@@ -17,8 +17,11 @@ export async function createManualTransaction(spaceId: string, input: { directio
 }
 export const tagTransaction = (id: string, categoryId: string | null, reason: string | null) =>
   db.transactions.update(id, { category_id: categoryId, reason: reason?.trim() || null, client_updated_at: nowIso(), ...dirty });
-export const editManualTransaction = (id: string, patch: { amount_cents: number; counterparty: string; occurred_at: string; direction: Direction }) =>
-  db.transactions.update(id, { ...patch, counterparty: patch.counterparty.trim(), client_updated_at: nowIso(), ...dirty });
+/** `direction` is optional: a transfer row has no in/out control to edit, and sending one would demote it. */
+export const editManualTransaction = (id: string, patch: { amount_cents: number; counterparty: string; occurred_at: string; direction?: Direction }) => {
+  const { direction, ...rest } = patch;
+  return db.transactions.update(id, { ...rest, ...(direction ? { direction } : {}), counterparty: patch.counterparty.trim(), client_updated_at: nowIso(), ...dirty });
+};
 export const softDeleteTransaction = (id: string) => db.transactions.update(id, { deleted_at: nowIso(), client_updated_at: nowIso(), ...dirty });
 
 export async function upsertCategory(spaceId: string, input: { id?: string; name: string; kind: "expense" | "income" | "transfer"; emoji: string; color: string; sort_order?: number }) {

@@ -11,3 +11,7 @@ export function timeAgo(iso: string, now = Date.now()) {
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`; if (diff < 7 * 86_400_000) return WD[d.getDay()]!;
   return `${d.getDate()} ${MON[d.getMonth()]}`;
 }
+/** ISO instant → value for an <input type="datetime-local"> in the browser's zone (minutes precision). */
+export const toLocalInput = (iso: string | Date) => { const d = new Date(iso); d.setSeconds(0, 0); return new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16); };
+/** datetime-local value → ISO instant; null when empty/invalid. */
+export const fromLocalInput = (v: string) => { const ms = Date.parse(v); return Number.isNaN(ms) ? null : new Date(ms).toISOString(); };

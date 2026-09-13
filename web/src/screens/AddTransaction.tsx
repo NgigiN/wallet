@@ -9,8 +9,9 @@ import { useCategories } from "../hooks/useCategories";
 import { CategoryGrid } from "../components/CategoryGrid";
 import { parseKesInput } from "../logic/money";
 import { matchRule } from "../logic/rules";
+import { fromLocalInput, toLocalInput } from "../logic/dates";
 
-const localNow = () => { const d = new Date(); d.setSeconds(0, 0); return new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16); };
+const localNow = () => toLocalInput(new Date());
 
 export function AddTransaction() {
   const nav = useNavigate(); const spaceId = useSpaceId(); const { pickable } = useCategories(spaceId);
@@ -24,10 +25,14 @@ export function AddTransaction() {
   useEffect(() => { if (!picked) setCat(matchRule(rules, counterparty)); }, [counterparty, rules, picked]);
   async function save(e: React.FormEvent) {
     e.preventDefault();
-    const cents = parseKesInput(amount); if (!cents) { setError("Enter an amount above zero."); return; }
-    if (!counterparty.trim()) { setError("Who was this with?"); return; }
-    await createManualTransaction(spaceId!, { direction: dir, amount_cents: cents, counterparty, occurred_at: new Date(when).toISOString(), category_id: cat, reason: reason || null });
-    requestSync(); nav("/", { replace: true });
+    setError(null);
+    try {
+      const cents = parseKesInput(amount); if (!cents) { setError("Enter an amount above zero."); return; }
+      if (!counterparty.trim()) { setError("Who was this with?"); return; }
+      const occurredAt = fromLocalInput(when); if (!occurredAt) { setError("Pick a date and time."); return; }
+      await createManualTransaction(spaceId!, { direction: dir, amount_cents: cents, counterparty, occurred_at: occurredAt, category_id: cat, reason: reason || null });
+      requestSync(); nav("/", { replace: true });
+    } catch { setError("Couldn't save that. Try again."); }
   }
   return (
     <form onSubmit={save}>
