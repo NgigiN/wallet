@@ -71,4 +71,49 @@ jobs:
         env:
           DATABASE_URL_TEST: postgres://wallet:wallet@127.0.0.1:5434/wallet
       - name: Docker build
-        run: docker build -f Dockerfile -t wallet-api:ci .
+        # The image bundles web/ too, so it builds from the repo root (ruling R-1B-2);
+        # this overrides the job-level `working-directory: server`.
+        run: docker build -f server/Dockerfile -t wallet-api:ci .
+        working-directory: .
+
+  web-test:
+    name: web-test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: wallet
+          POSTGRES_PASSWORD: wallet
+          POSTGRES_DB: wallet
+        ports: ["5434:5432"]
+        options: >-
+          --health-cmd "pg_isready -U wallet" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        working-directory: web
+      # The e2e webServer builds and starts the real API, so server deps are needed too.
+      - run: npm ci
+        working-directory: server
+      - run: npm run typecheck
+        working-directory: web
+      - run: npm test
+        working-directory: web
+      - run: npx playwright install --with-deps chromium
+        working-directory: web
+      - run: npm run test:e2e
+        working-directory: web
+        env:
+          CI: "1"
+          DATABASE_URL_TEST: postgres://wallet:wallet@127.0.0.1:5434/wallet
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: web/playwright-report

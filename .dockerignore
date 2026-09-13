@@ -1,0 +1,10 @@
+**/node_modules
+**/dist
+**/.env*
+server/compose.test.yml
+android
+financial-tracker
+.git
+.superpowers
+**/test-results
+**/playwright-report

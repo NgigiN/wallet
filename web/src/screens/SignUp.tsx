@@ -19,9 +19,9 @@ export function SignUp() {
     <div className="shell-main">
       <div className="hero"><div className="dim">Let's get you set up</div><div className="big">Create account</div></div>
       <form onSubmit={submit} className="card">
-        <div className="field"><label>Name</label><input autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} required /></div>
-        <div className="field"><label>Email</label><input type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></div>
-        <div className="field"><label>Password (10+ characters)</label><input type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={10} /></div>
+        <div className="field"><label htmlFor="su-name">Name</label><input id="su-name" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} required /></div>
+        <div className="field"><label htmlFor="su-email">Email</label><input id="su-email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></div>
+        <div className="field"><label htmlFor="su-password">Password (10+ characters)</label><input id="su-password" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={10} /></div>
         {error && <div className="error">{error}</div>}
         <button className="btn" disabled={busy}>Create account</button>
         <p style={{ textAlign: "center", fontSize: 13 }}>Already have one? <Link to="/sign-in">Sign in</Link></p>

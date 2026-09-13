@@ -37,12 +37,12 @@ export function TransactionDetail() {
       {t.sync_state === "error" && <div className="card error">Not synced: {copyFor(t.sync_error ?? "", t.sync_error ?? "")}</div>}
       <div className="card">
         {manual && <>
-          <div className="field"><label>Direction</label><select value={dir} onChange={(e) => setDir(e.target.value as "in" | "out")}><option value="out">Money out</option><option value="in">Money in</option></select></div>
-          <div className="field"><label>Amount (Ksh)</label><input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
-          <div className="field"><label>Counterparty</label><input value={counterparty} onChange={(e) => setCounterparty(e.target.value)} /></div>
-          <div className="field"><label>When</label><input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} /></div></>}
+          <div className="field"><label htmlFor="tx-dir">Direction</label><select id="tx-dir" value={dir} onChange={(e) => setDir(e.target.value as "in" | "out")}><option value="out">Money out</option><option value="in">Money in</option></select></div>
+          <div className="field"><label htmlFor="tx-amount">Amount (Ksh)</label><input id="tx-amount" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
+          <div className="field"><label htmlFor="tx-counterparty">Counterparty</label><input id="tx-counterparty" value={counterparty} onChange={(e) => setCounterparty(e.target.value)} /></div>
+          <div className="field"><label htmlFor="tx-when">When</label><input id="tx-when" type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} /></div></>}
         <div className="field"><label>Category</label><CategoryGrid categories={pickable} selected={cat} onSelect={setCat} /></div>
-        <div className="field"><label>Reason (optional)</label><input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. lunch with Sam" /></div>
+        <div className="field"><label htmlFor="tx-reason">Reason (optional)</label><input id="tx-reason" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. lunch with Sam" /></div>
         {error && <div className="error">{error}</div>}
         <button className="btn" onClick={() => void save()}>Save</button>
         <button className="btn danger" style={{ marginTop: 8 }} onClick={() => void del()}>Delete</button>

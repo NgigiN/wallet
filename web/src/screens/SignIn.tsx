@@ -17,8 +17,8 @@ export function SignIn() {
     <div className="shell-main">
       <div className="hero"><div className="dim">Welcome back</div><div className="big">Wallet</div></div>
       <form onSubmit={submit} className="card">
-        <div className="field"><label>Email</label><input type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></div>
-        <div className="field"><label>Password</label><input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required /></div>
+        <div className="field"><label htmlFor="si-email">Email</label><input id="si-email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></div>
+        <div className="field"><label htmlFor="si-password">Password</label><input id="si-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required /></div>
         {error && <div className="error">{error}</div>}
         <button className="btn" disabled={busy}>Sign in</button>
         <p style={{ textAlign: "center", fontSize: 13 }}>New here? <Link to="/sign-up">Create an account</Link></p>

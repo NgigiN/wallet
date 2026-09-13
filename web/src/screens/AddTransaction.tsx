@@ -36,11 +36,11 @@ export function AddTransaction() {
         <div className="field"><label>Direction</label><div className="grid3" style={{ gridTemplateColumns: "1fr 1fr" }}>
           <button type="button" className={`chip ${dir === "out" ? "selected" : ""}`} style={{ ["--chip-color" as any]: "var(--money-out)", justifyContent: "center" }} onClick={() => setDir("out")}>Money out</button>
           <button type="button" className={`chip ${dir === "in" ? "selected" : ""}`} style={{ ["--chip-color" as any]: "var(--money-in)", justifyContent: "center" }} onClick={() => setDir("in")}>Money in</button></div></div>
-        <div className="field"><label>Amount (Ksh)</label><input inputMode="decimal" autoFocus value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" /></div>
-        <div className="field"><label>Counterparty</label><input list="cp" value={counterparty} onChange={(e) => setCounterparty(e.target.value)} placeholder="Shop, person, or note" /><datalist id="cp">{suggestions.map((s) => <option key={s} value={s} />)}</datalist></div>
-        <div className="field"><label>When</label><input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} /></div>
+        <div className="field"><label htmlFor="add-amount">Amount (Ksh)</label><input id="add-amount" inputMode="decimal" autoFocus value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" /></div>
+        <div className="field"><label htmlFor="add-counterparty">Counterparty</label><input id="add-counterparty" list="cp" value={counterparty} onChange={(e) => setCounterparty(e.target.value)} placeholder="Shop, person, or note" /><datalist id="cp">{suggestions.map((s) => <option key={s} value={s} />)}</datalist></div>
+        <div className="field"><label htmlFor="add-when">When</label><input id="add-when" type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} /></div>
         <div className="field"><label>Category{!picked && cat ? " (from a rule)" : ""}</label><CategoryGrid categories={pickable} selected={cat} onSelect={(id) => { setCat(id); setPicked(true); }} /></div>
-        <div className="field"><label>Reason (optional)</label><input value={reason} onChange={(e) => setReason(e.target.value)} /></div>
+        <div className="field"><label htmlFor="add-reason">Reason (optional)</label><input id="add-reason" value={reason} onChange={(e) => setReason(e.target.value)} /></div>
         {error && <div className="error">{error}</div>}
         <button className="btn">Save</button>
       </div>
