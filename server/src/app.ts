@@ -39,7 +39,12 @@ export function createApp(deps: AppDeps) {
 
   app.route("/", healthRoutes({ version: deps.env.APP_VERSION, healthDb: deps.healthDb }));
 
-  app.use("/api/auth/*", rateLimit({ windowMs: 60_000, max: 10, keyFn: clientIp }));
+  // Only the POSTs (sign-in, sign-up, sign-out, password) are limited. GET
+  // /api/auth/get-session is the web app's session check — it fires on every mount, tab
+  // focus and reconnect — and a 429 there is indistinguishable from "not signed in" to any
+  // client, so limiting it logs people out of a working session.
+  const authLimiter = rateLimit({ windowMs: 60_000, max: 10, keyFn: clientIp });
+  app.use("/api/auth/*", (c, next) => (c.req.method === "POST" ? authLimiter(c, next) : next()));
   app.on(["GET", "POST"], "/api/auth/*", (c) => deps.auth.handler(c.req.raw));
 
   const v2 = new Hono<{ Variables: SessionVars }>();
