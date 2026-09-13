@@ -1,3 +1,5 @@
+> **2026-09-13: Wallet v2 is live.** The Go backend and Discord bot described below were retired at the production cutover. The backend is now the TypeScript service in `server/`, the web app is `web/`, deployment is `deploy/`. This README is rewritten in Phase 4 (see `docs/superpowers/PROGRESS.md`).
+
 # Wallet
 
 A personal finance tracker with two parts sharing one backend database:

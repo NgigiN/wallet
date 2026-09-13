@@ -124,22 +124,22 @@ Follow-ups opened by this stage
 ### Stage 1C Import and cutover
 | Step | Status |
 |---|---|
-| D1C.1 Legacy shim (`/api/transactions` with `LEGACY_API_TOKEN`) | todo |
-| D1C.2 Import script + fixture SQLite test | todo |
-| Import rehearsal on staging with the real dump | todo |
-| Cutover per spec §12.3 | todo |
-| Delete Go code, Dockerfile, start_app.sh, Discord bot; merge `v2` → `main`; tag `v2.0.0` | todo |
-| Revoke Discord bot token | todo |
-| D1C.4 Restore drill on first production dump | todo |
+| D1C.1 Legacy shim (`/api/transactions` with `LEGACY_API_TOKEN`) | done 2026-09-13 (`server/src/routes/legacy.ts`, 5 tests incl. the exact Android JSON → 201 then 200) |
+| D1C.2 Import script + fixture test | done 2026-09-13 (`deploy/export-sqlite.py` + `server/src/scripts/import-json.ts`, 3 tests; exporter reproduces 74/9027/2400 on the Sep 11 copy) |
+| Import rehearsal | done 2026-09-13 (fixture + exporter check on the real Sep 11 copy; user chose direct cutover) |
+| Cutover per spec §12.3 | done 2026-09-13 11:11 EAT (record in `deploy/VPS_SETUP.md`) |
+| Delete Go code, Dockerfile, start_app.sh, Discord bot; merge `v2` → `main`; tag `v2.0.0` | done 2026-09-13 (PR #7, PR #8, tag v2.0.0 deploy run succeeded) |
+| Revoke Discord bot token | done 2026-09-13 (user) |
+| D1C.4 Restore drill on first production dump | done 2026-09-13 (`wallet-prod-20260913-1115.dump.age` → 85 tx / 1 user / maxseq 99 = production) |
 
 Verification
 - check: integration test posts the exact JSON `android/.../sync/ApiClient.kt` sends → 201 then 200 on repeat
 - cmd: `npm run import -- --db ./fixtures/sample.db --email test@x` → record: read/inserted/updated/skipped counts
-- record (staging, real dump): SQLite count ____ vs Postgres count ____; out-sum ____ vs ____; in-sum ____ vs ____ (must be equal)
+- record (production, real export): SQLite 85 vs Postgres 85; out-sum 9,557.00 vs 9,557.00; in-sum 2,400.00 vs 2,400.00 (equal)
 - cmd (VPS after cutover): `curl -s https://wallet.samtama.lol/health` → new stack version string
 - check: Android pull-to-refresh succeeds; a new SMS on the phone appears in web inbox → record time: ____
 - check: `docker ps` shows `financial-tracker-bot` stopped, `wallet2-api-1` up
-- record: restore drill date ____, dump filename ____, restored count ____ vs prod ____
+- record: restore drill 2026-09-13, `wallet-prod-20260913-1115.dump.age`, restored 85 | 1 | 99 vs prod 85 | 1 | 99
 
 ### Stage 1D Android login + sync v2
 | Step | Status |
@@ -233,7 +233,7 @@ Verification
 | VPS sudo session for staging nginx vhost | Phase 1A | pending — exact command block in `deploy/nginx-wallet-staging.conf` header; file staged on the VPS at `/tmp/nginx-wallet-staging.conf` |
 | Resend API key + verified sender | Phase 2 | pending |
 | Firebase: service account JSON, `google-services.json`, web config + VAPID key | Phase 3 | pending |
-| Uptime Kuma monitor on new `/health` (user adds at cutover) | Phase 1C | pending |
+| Uptime Kuma monitor on new `/health` | Phase 1C | done ("Wallet Peep", 3 min) |
 
 ## Changelog
 
@@ -249,3 +249,4 @@ Verification
 - 2026-09-13: Stage 1B complete (Tasks 1–13). 54 web unit tests and 4 Playwright e2e specs green; `web-test` added to CI. The image now builds from the repo root and bundles the PWA — `server/Dockerfile` gained a `web` stage, `server/.dockerignore` moved to the repo root, `deploy/compose.yml` builds with `context: ..`. Staging serves the app at https://wallet-staging.samtama.lol (root, manifest and /health all verified; `financial-tracker-bot` untouched). Lighthouse 13 has no `pwa` category any more, so installability is recorded as manifest + SW-controller evidence: performance 94, best-practices 100, accessibility 88. Parity against Android is still pending the user's numbers; a staging self-check (1,200 + 800 food, 450 travel → hero Ksh 2,450) matched on two devices. Gotchas: Playwright does not attach context headers to service-worker-relayed requests, so the SW is blocked in e2e to keep the auth rate-limit buckets per-test; and a `page.goto` fired straight after a Save can tear down the in-flight IndexedDB write, so the tag helper waits for the rendered result.
 - 2026-09-13: Phase 1B parity check passed exactly (Android vs staging web, 83 rows, two months). Task 13 complete; staging serves the PWA at https://wallet-staging.samtama.lol. Known follow-ups from Task 13: manual-transaction save shifts occurred_at by the UTC offset (TransactionDetail); BetterAuth's internal rate limiter trusts x-forwarded-for.
 - 2026-09-13: Phase 1B merged (PR #5, squash `2344682`); `web-test` now a required check on `main`/`v2`; staging redeployed from `v2` and serving the PWA (health, root, manifest all 200; live Go container untouched). Final review found one Critical (manual-transaction date shift on save) and eight Important cross-task seams; all fixed in one wave plus two residuals fixed inline (rejection warnings gated on `sync_error`; tests pinned to a non-UTC zone). Final counts: web 83 unit tests, server 73, e2e 4, Go green. Deferred to 1C: `from` state on sign-in, getDeviceId first-call race, `as any` in the engine, requestSync max-wait, Feb-29 year step, more date/week tests, Field/DirectionToggle factoring, Review-tab click-through test; to Phase 2: SignIn/SignUp duplication (OTP rewrite); noted: hidden sourcemaps still ship `.map` files, `workbox-*.js` has no Cache-Control, all GET `/api/auth/*` exempt from the app limiter (better-auth's own limiter covers it). Next: Phase 1C plan (import script, legacy shim, cutover).
+- 2026-09-13: Phase 1C executed inline with the user present. Production cut over to v2 at 11:11 EAT; 85 rows imported exactly; the v1 Android app is served by the shim; Go backend and Discord bot retired; first prod backup + restore drill passed; Uptime Kuma on `/health`; `v2` merged into `main` (PR #8) and tagged `v2.0.0` (deploy run succeeded). Branch policy from here: feature branches → `main`; tag deploys only; the `v2` integration branch is retired. Next: Phase 1D (Android login + sync v2), then the shim is removed.
