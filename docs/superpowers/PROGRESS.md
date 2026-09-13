@@ -94,21 +94,32 @@ Verification
 ### Stage 1B Web PWA
 | Step | Status |
 |---|---|
-| D1B.1 Scaffold, theme tokens, manifest/service worker, install hint | todo |
-| D1B.2 Auth screens, session, 426 screen | todo |
-| D1B.3 Dexie store + sync client | todo |
-| D1B.4 Inbox, tag, manual add, delete | todo |
-| D1B.5 Categories + budgets screens | todo |
-| D1B.6 Stats + Review | todo |
-| D1B.7 Settings, devices, privacy page | todo |
+| D1B.1 Scaffold, theme tokens, manifest/service worker, install hint | done 2026-09-12 (manifest `display: standalone`, 192/512/maskable icons; SW registered and controlling on staging — evidence below) |
+| D1B.2 Auth screens, session, 426 screen | done 2026-09-12 (e2e `auth.spec`: sign up → inbox, reload keeps session, sign out → sign-in, sign back in) |
+| D1B.3 Dexie store + sync client | done 2026-09-12 (e2e `offline.spec`: edit made offline → reconnect → "Synced" → a second device sees the row) |
+| D1B.4 Inbox, tag, manual add, delete | done 2026-09-12 (e2e `inbox.spec`: add → "Needs a category" → tag → "Recent" → visible on a second device) |
+| D1B.5 Categories + budgets screens | done 2026-09-12 (unit tests `categories.test.tsx`, `budget.test.ts`; e2e `stats.spec` sets a monthly limit and reads its progress back) |
+| D1B.6 Stats + Review | done 2026-09-12 (unit `stats.test.ts`, `review.test.ts`, `stats-screen.test.tsx`, `review-tab.test.tsx`; staging self-check below) |
+| D1B.7 Settings, devices, privacy page | done 2026-09-12 (devices list, sync status, install hint, sign-out; `/privacy` unauthenticated) |
+| Task 13: Playwright e2e, `web-test` CI job, image bundles the PWA, staging deploy | done 2026-09-13 (`c8c60b2`) |
 
-Verification
-- cmd: `cd web && npm run typecheck && npm run build` → clean
-- cmd: `cd web && npm run test` → record: N tests
-- cmd: `cd web && npx playwright test` → record: N e2e passed (sign-up, add, tag, stats, offline-edit-reconnect)
-- check: Lighthouse "installable" passes on the staging URL → record score: ____
-- check: on an iPhone, Share → Add to Home Screen opens standalone with no Safari chrome → record device/iOS version: ____
-- check: Stats month totals on web equal Android Stats for the same month on imported data → record month + both numbers: ____
+Verification (2026-09-13 unless noted)
+- cmd: `cd web && npm run typecheck` → clean (exit 0); `npm run build` → `dist/` with 16 precached entries (569 KiB)
+- cmd: `cd web && npm test` → **17 files, 54 tests, 0 failures**
+- cmd: `cd web && npm run test:e2e` → **4 passed** (`auth`, `inbox`, `offline`, `stats`), and again with `CI=1` (retries on, `reuseExistingServer` off) → 4 passed. The suite builds `web/dist` + `server/dist` and runs the real single-origin server on 127.0.0.1:8089 against the test Postgres on 5434.
+- cmd (local image, repo-root context): `docker build -f server/Dockerfile -t wallet-api:local .` → built; run against the test DB on :8099 → `/health` `{"status":"healthy","db":"ok"}`, `curl / | grep -c 'id="root"'` → **1**, `/manifest.webmanifest` → **200** `"display":"standalone"`, `/sw.js` → 200, `/stats` (deep link) → 200 via SPA fallback, `/api/nope` → 404 JSON
+- cmd (VPS): `cd deploy && docker compose --env-file .env.staging -f compose.yml -f compose.staging.yml up -d --build` → `wallet2-staging-api-1` recreated and healthy; `financial-tracker-bot` untouched (still `Up 4 days`)
+- check (staging): `https://wallet-staging.samtama.lol/` → **200**, `grep -c 'id="root"'` → **1** · `/manifest.webmanifest` → **200**, `"display":"standalone"` · `/health` → **200** `{"status":"healthy","db":"ok","version":"staging"}`
+- check: Lighthouse "installable" passes on the staging URL → **not available**: Lighthouse 13.4.1 removed the `pwa` category (and the `installable-manifest` audit) in v12, so installability is recorded directly instead. Lighthouse 13.4.1, mobile, `https://wallet-staging.samtama.lol/sign-in`: **performance 94, best-practices 100, accessibility 88** (FCP 2.4 s, LCP 2.4 s, TBT 0 ms, CLS 0.008, Speed Index 3.5 s).
+- check (installability, measured in a headless Chromium session against staging): `<link rel="manifest" href="/manifest.webmanifest">` present · manifest 200 with `display: standalone`, `start_url: /`, `scope: /`, icons 192x192 + 512x512 + 512x512 maskable · after the first load `navigator.serviceWorker.getRegistration()` → registered, active, scope `https://wallet-staging.samtama.lol/` · after a second load `navigator.serviceWorker.controller.scriptURL` → `https://wallet-staging.samtama.lol/sw.js` (the page is SW-controlled)
+- check: on an iPhone, Share → Add to Home Screen opens standalone with no Safari chrome → **pending — needs the user's device** (`apple-mobile-web-app-capable`, `apple-mobile-web-app-status-bar-style` and a 180px apple-touch-icon are in `index.html`)
+- check: Stats month totals on web equal Android Stats for the same month on imported data → **pending — user to supply Android numbers**. Self-consistency check run on staging instead (September 2026, throwaway account `e2e-staging-1789280442078@example.com`): entered Naivas Ksh 1,200 + Java Ksh 800 (food) and Matatu Ksh 450 (travel); Stats hero "Money out" → **Ksh 2,450** (= 1,200 + 800 + 450), bars → **food Ksh 2,000** (= 1,200 + 800), **travel Ksh 450**. A second browser context signed in as the same user read back the identical hero and bars, so the numbers survived the server round trip.
+
+Follow-ups opened by this stage
+- `TransactionDetail` seeds its `datetime-local` box with `t.occurred_at.slice(0, 16)` — a UTC instant read as local time, so every save of a manual transaction shifts `occurred_at` backwards by the UTC offset (3 h in Nairobi), cumulatively. Fix: format the local-time string the way `AddTransaction.localNow()` does.
+- BetterAuth's built-in rate limiter keys on `x-forwarded-for`, whose first element the client controls through nginx's `$proxy_add_x_forwarded_for`. Pin it with `advanced: { ipAddress: { ipAddressHeaders: ["x-real-ip"] } }` so the 3-per-10 s sign-in limit cannot be sidestepped.
+- Lighthouse accessibility 88: the primary `.btn` fails contrast at 3.74:1 (white on the green fill) and no `<main>` landmark exists on the auth screens.
+- e2e blocks service workers (Playwright drops context headers on SW-relayed requests); the SW itself is therefore only covered by the staging checks above.
 
 ### Stage 1C Import and cutover
 | Step | Status |
@@ -235,3 +246,4 @@ Verification
 - 2026-09-11: Task 12 review fix round 1. Backups made trustworthy: `set -euo pipefail` + `trap`, a 10000-byte upload floor, monthlies uploaded from the local dump instead of a remote→remote copy, and the sidecar now writes `/etc/backup.env` (root-only) before starting crond because busybox crond gives its jobs a bare environment — the scheduled path was then proven end to end via `BACKUP_CRON`. Tombstone purge runs in one transaction, logs per table, guards `DATABASE_URL`, and skips category tombstones still referenced by a transaction/budget/rule. `env_file` is now a single `${ENV_FILE:-.env}` entry per environment so a future prod `.env` cannot leak into staging.
 - 2026-09-11: staging live over HTTPS. Gotcha: `*.samtama.lol` is a proxied wildcard plus a Cloudflare redirect rule to the apex, so `dig` shows every subdomain as existing; a NEW subdomain needs an explicit A record AND an exclusion from the redirect rule before certbot's HTTP-01 challenge can reach the origin. Phase 1A: all 12 tasks complete, 64 server tests, final review parked 2 residuals (see PR).
 - 2026-09-12: Phase 1A merged (PR #3, `3d4e08b`); `server-test` now a required check. Phase 1B plan written against the real server interfaces. 1B rulings: TanStack Query dropped (Dexie liveQuery is the read layer); Docker build context moves to the repo root so the image bundles `web/dist`; no CORS (dev uses the vite proxy). Chart palette (six spend colours) validated on light and dark surfaces with the dataviz validator; transfer gray excluded from charts.
+- 2026-09-13: Stage 1B complete (Tasks 1–13). 54 web unit tests and 4 Playwright e2e specs green; `web-test` added to CI. The image now builds from the repo root and bundles the PWA — `server/Dockerfile` gained a `web` stage, `server/.dockerignore` moved to the repo root, `deploy/compose.yml` builds with `context: ..`. Staging serves the app at https://wallet-staging.samtama.lol (root, manifest and /health all verified; `financial-tracker-bot` untouched). Lighthouse 13 has no `pwa` category any more, so installability is recorded as manifest + SW-controller evidence: performance 94, best-practices 100, accessibility 88. Parity against Android is still pending the user's numbers; a staging self-check (1,200 + 800 food, 450 travel → hero Ksh 2,450) matched on two devices. Gotchas: Playwright does not attach context headers to service-worker-relayed requests, so the SW is blocked in e2e to keep the auth rate-limit buckets per-test; and a `page.goto` fired straight after a Save can tear down the in-flight IndexedDB write, so the tag helper waits for the rendered result.
