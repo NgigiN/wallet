@@ -14,6 +14,7 @@ import type { Space } from "./middleware/space.js";
 import { healthRoutes } from "./routes/health.js";
 import { meRoutes } from "./routes/me.js";
 import { spaceRoutes } from "./routes/spaces.js";
+import { legacyRoutes } from "./routes/legacy.js";
 
 export type AppDeps = { env: Env; db: Db; auth: Auth; healthDb: () => Promise<boolean> };
 
@@ -54,6 +55,9 @@ export function createApp(deps: AppDeps) {
   v2.route("/me", meRoutes(deps.db));
   v2.route("/spaces", spaceRoutes(deps.db, deps.auth));
   app.route("/api/v2", v2);
+
+  // Phase 1C only: v1 Android app compatibility. Bearer-token auth, no version gate.
+  app.route("/api/transactions", legacyRoutes(deps.db, deps.env));
 
   app.all("/api/*", (c) => c.json({ error: "not_found" }, 404));
 

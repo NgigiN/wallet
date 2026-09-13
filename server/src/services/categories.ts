@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { categories, spaceSettings } from "../db/schema.js";
 
@@ -20,4 +21,20 @@ export async function seedCategories(db: Db, spaceId: string) {
       DEFAULT_CATEGORIES.map((c) => ({ id: randomUUID(), spaceId, ...c, clientUpdatedAt: now })),
     ).onConflictDoNothing();
   });
+}
+
+/**
+ * Resolves a category by name (case-insensitive, live rows only) inside a space, creating
+ * a plain expense category when none exists. Used by the legacy shim and the importer,
+ * which receive category NAMES from the v1 world. Empty / "uncategorized" → null.
+ */
+export async function resolveCategoryByName(db: Db, spaceId: string, name: string | null | undefined): Promise<string | null> {
+  const clean = (name ?? "").trim();
+  if (!clean || clean.toLowerCase() === "uncategorized") return null;
+  const [existing] = await db.select({ id: categories.id }).from(categories)
+    .where(and(eq(categories.spaceId, spaceId), sql`lower(${categories.name}) = lower(${clean})`, isNull(categories.deletedAt))).limit(1);
+  if (existing) return existing.id;
+  const id = randomUUID();
+  await db.insert(categories).values({ id, spaceId, name: clean.toLowerCase(), kind: "expense", emoji: "🧾", color: "#607468", sortOrder: 99, clientUpdatedAt: new Date() });
+  return id;
 }
