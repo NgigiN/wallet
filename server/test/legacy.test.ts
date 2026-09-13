@@ -77,3 +77,35 @@ describe("legacy shim", () => {
     expect(body[0].date_time).toBe("2026-09-13T06:24:00.000Z");
   });
 });
+
+describe("legacy shim — cutover regressions", () => {
+  it("re-tagging an imported row whose stored balance is 0 (phone sends null-ish 0) updates instead of 400 immutable", async () => {
+    const { post, spaceId, userId } = await setup();
+    // Simulate the importer: balance stored as 0, counterparty normalised to "Unknown", same deterministic id.
+    const { importTxId } = await import("../src/scripts/import-json.js");
+    await testDb.insert(transactions).values({ id: importTxId(spaceId, "TIDIMP", "out"), spaceId, capturedBy: userId, source: "mpesa", receiptCode: "TIDIMP", direction: "out",
+      amountCents: 30000, costCents: 700, balanceCents: 0, counterparty: "Unknown", occurredAt: new Date("2026-09-13T06:24:00.000Z"), categoryId: null, reason: null, clientUpdatedAt: new Date("2026-09-13T06:24:00.000Z") });
+    const res = await post(androidJson({ transaction_id: "TIDIMP", balance: 0, counterparty: "", category: "food", reason: "tagged on phone" }));
+    expect(res.status).toBe(200);
+    const rows = await testDb.select().from(transactions).where(eq(transactions.spaceId, spaceId));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ balanceCents: 0, counterparty: "Unknown", reason: "tagged on phone" });
+    expect(rows[0]!.categoryId).not.toBeNull();
+  });
+
+  it("GET omits manual (web-created) rows so the phone never duplicates them", async () => {
+    const { app, post, spaceId, userId } = await setup();
+    await post(androidJson());
+    await testDb.insert(transactions).values({ id: "018f0000-0000-7000-8000-0000000000aa", spaceId, capturedBy: userId, source: "manual", receiptCode: null, direction: "out",
+      amountCents: 500, costCents: 0, balanceCents: null, counterparty: "Cash", occurredAt: new Date(), categoryId: null, reason: null, clientUpdatedAt: new Date() });
+    const body = await (await app.request("/api/transactions", { headers: { authorization: `Bearer ${TOKEN}` } })).json();
+    expect(body).toHaveLength(1); expect(body[0].transaction_id).toBe("TID60759AQ");
+  });
+
+  it("is rate limited per IP", async () => {
+    const { app } = await setup();
+    let last = 0;
+    for (let i = 0; i < 61; i++) last = (await app.request("/api/transactions", { headers: { authorization: "Bearer nope", "x-real-ip": "9.9.9.9" } })).status;
+    expect(last).toBe(429);
+  });
+});

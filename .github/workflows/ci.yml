@@ -5,9 +5,9 @@ on:
     branches: [main, v2]
   push:
     branches: [main, v2]
+  workflow_call:
 
 jobs:
-
   android-test:
     name: android-test
     runs-on: ubuntu-latest

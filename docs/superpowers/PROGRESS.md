@@ -137,7 +137,7 @@ Verification
 - cmd: `npm run import -- --db ./fixtures/sample.db --email test@x` → record: read/inserted/updated/skipped counts
 - record (production, real export): SQLite 85 vs Postgres 85; out-sum 9,557.00 vs 9,557.00; in-sum 2,400.00 vs 2,400.00 (equal)
 - cmd (VPS after cutover): `curl -s https://wallet.samtama.lol/health` → new stack version string
-- check: Android pull-to-refresh succeeds; a new SMS on the phone appears in web inbox → record time: ____
+- check: Android pull-to-refresh succeeds; tagging on the phone syncs through the shim → verified by the user 2026-09-13 ~11:25 EAT; web Stats shows the phone's September plus the two post-snapshot rows
 - check: `docker ps` shows `financial-tracker-bot` stopped, `wallet2-api-1` up
 - record: restore drill 2026-09-13, `wallet-prod-20260913-1115.dump.age`, restored 85 | 1 | 99 vs prod 85 | 1 | 99
 
