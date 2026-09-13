@@ -30,16 +30,26 @@ const localTable = (t: Table) => db[t] as unknown as typeof db.transactions;
  */
 const CLASH_ERRORS = new Set(["duplicate_budget", "duplicate_rule"]);
 
+/**
+ * Rejections the user can fix from the UI (re-pick a category, correct a field). The row
+ * goes back to `dirty` so the next sync carries the fix, while `sync_error` stays set so
+ * the screen can still say why the last attempt bounced. Everything else — a clash with a
+ * server row, an edit the server will never accept — stays `error`: re-pushing it
+ * unchanged would only be rejected again.
+ */
+const RETRY_ERRORS = new Set(["bad_category", "invalid"]);
+
 async function applyResult(spaceId: string, t: Table, r: PushResult) {
   const table = localTable(t);
   const local = await table.get(r.id);
   if (r.status === "rejected") {
     const code = r.error ?? "rejected";
+    const state = RETRY_ERRORS.has(code) ? "dirty" : "error";
     if (r.row && r.row.id === r.id) {
-      await table.put({ ...r.row, space_id: spaceId, sync_state: "error", sync_error: code } as any);
+      await table.put({ ...r.row, space_id: spaceId, sync_state: state, sync_error: code } as any);
       return;
     }
-    if (local) await table.update(r.id, { sync_state: "error", sync_error: code } as any);
+    if (local) await table.update(r.id, { sync_state: state, sync_error: code } as any);
     if (r.row) {
       if (!CLASH_ERRORS.has(code) && local) await table.delete(r.id);
       await table.put({ ...r.row, space_id: spaceId, sync_state: "clean", sync_error: null } as any);

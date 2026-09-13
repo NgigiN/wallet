@@ -6,6 +6,7 @@ import { requestSync } from "../sync/useSync";
 import { Sheet } from "../components/Sheet";
 import { SectionCard } from "../components/SectionCard";
 import { categoryStyle } from "../theme/categories";
+import { copyFor } from "../api/errors";
 import type { LocalCategory } from "../db/schema";
 
 const PALETTE = ["#B02E0C", "#2B6CB0", "#C43A8A", "#8B5CF6", "#AC8112", "#1B7F4B"];
@@ -39,11 +40,14 @@ export function Categories() {
       <div className="hero"><div className="dim">Settings</div><div className="big">Categories</div></div>
       <SectionCard title="Your categories" action={<button className="btn secondary" style={{ width: "auto", padding: "6px 12px" }} onClick={() => open()}>Add category</button>}>
         {list.map((c, i) => { const s = categoryStyle(c); return (
-          <div key={c.id} className="row" style={{ opacity: c.archived ? 0.5 : 1 }}>
-            <span style={{ fontSize: 22 }}>{s.emoji}</span>
-            <button className="grow iconbtn" style={{ textAlign: "left", fontSize: 14 }} onClick={() => open(c)}><div className="title">{c.name}</div><div className="sub">{c.kind}{c.is_system ? " · built-in" : ""}{c.archived ? " · archived" : ""}</div></button>
-            <button className="iconbtn" aria-label="Move up" onClick={() => void move(i, -1)}>↑</button><button className="iconbtn" aria-label="Move down" onClick={() => void move(i, 1)}>↓</button>
-            <button className="iconbtn" disabled={c.is_system} title={c.is_system ? "Built-in categories can't be archived" : undefined} aria-label={c.is_system ? "Built-in categories can't be archived" : c.archived ? "Unarchive" : "Archive"} onClick={() => { if (c.is_system) return; void archiveCategory(c.id, !c.archived); requestSync(); }}>{c.archived ? "♻️" : "🗄"}</button>
+          <div key={c.id} style={{ opacity: c.archived ? 0.5 : 1 }}>
+            <div className="row">
+              <span style={{ fontSize: 22 }}>{s.emoji}</span>
+              <button className="grow iconbtn" style={{ textAlign: "left", fontSize: 14 }} onClick={() => open(c)}><div className="title">{c.name}</div><div className="sub">{c.kind}{c.is_system ? " · built-in" : ""}{c.archived ? " · archived" : ""}</div></button>
+              <button className="iconbtn" aria-label="Move up" onClick={() => void move(i, -1)}>↑</button><button className="iconbtn" aria-label="Move down" onClick={() => void move(i, 1)}>↓</button>
+              <button className="iconbtn" disabled={c.is_system} title={c.is_system ? "Built-in categories can't be archived" : undefined} aria-label={c.is_system ? "Built-in categories can't be archived" : c.archived ? "Unarchive" : "Archive"} onClick={() => { if (c.is_system) return; void archiveCategory(c.id, !c.archived); requestSync(); }}>{c.archived ? "♻️" : "🗄"}</button>
+            </div>
+            {c.sync_state === "error" && <div className="error" style={{ paddingBottom: 8 }}>{copyFor(c.sync_error ?? "")}</div>}
           </div>); })}
       </SectionCard>
       <Sheet open={draft !== null} onClose={() => setDraft(null)}>

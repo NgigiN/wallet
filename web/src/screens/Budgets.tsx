@@ -10,6 +10,7 @@ import { range } from "../logic/period";
 import { categorySpend } from "../logic/stats";
 import { budgetProgress } from "../logic/budget";
 import { categoryStyle } from "../theme/categories";
+import { copyFor } from "../api/errors";
 
 export function Budgets() {
   const spaceId = useSpaceId(); const { rows, cats, budgets } = useSpaceData(spaceId);
@@ -36,6 +37,7 @@ export function Budgets() {
               <input inputMode="decimal" placeholder="No limit" style={{ width: 120, padding: 8, borderRadius: 10, border: "1px solid var(--line)" }} value={drafts[c.id] ?? (b ? String(b.monthly_limit_cents / 100) : "")}
                 onChange={(e) => setDrafts({ ...drafts, [c.id]: e.target.value })} onBlur={() => void commit(c.id)} onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} /></div>
             {bp && <Bar fraction={bp.fraction} color={bp.level === 2 ? "var(--money-out)" : bp.level === 1 ? "var(--gold)" : s.color} emoji="" label="" value={`${formatKes(spend)} of ${formatKes(b!.monthly_limit_cents)}`} />}
+            {b?.sync_state === "error" && <div className="error">{copyFor(b.sync_error ?? "")}</div>}
           </div>; })}
       </SectionCard>
     </>

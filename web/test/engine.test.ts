@@ -59,12 +59,22 @@ describe("runSync", () => {
     expect(await db.transactions.get(id)).toBeUndefined();
     expect((await db.transactions.get("srv-1"))!.sync_state).toBe("clean");
   });
-  it("marks rejected rows as error with the code and keeps them", async () => {
+  it("re-arms a fixable rejection as dirty, keeping the code for the UI", async () => {
     const id = await createManualTransaction(S, { direction: "out", amount_cents: 100, counterparty: "x", occurred_at: "2026-09-12T10:00:00.000Z", category_id: "nope", reason: null });
     const { api } = fakeApi();
     api.pushBatch.mockImplementationOnce(async (_s: string, body: any) => ({ results: [{ table: "transactions", id: body.transactions[0].id, status: "rejected", error: "bad_category" }], cursor: 50 }));
     const out = await runSync(S, api);
-    expect((await db.transactions.get(id))!).toMatchObject({ sync_state: "error", sync_error: "bad_category" });
+    // dirty, so the next sync carries whatever the user picks; sync_error survives so the
+    // detail screen can explain why nothing moved.
+    expect((await db.transactions.get(id))!).toMatchObject({ sync_state: "dirty", sync_error: "bad_category" });
+    expect(out.rejected).toBe(1);
+  });
+  it("leaves a rejection the client cannot fix by re-pushing as error", async () => {
+    const id = await upsertCategory(S, { name: "Food", kind: "expense", emoji: "F", color: "#ff0000" });
+    const { api } = fakeApi();
+    api.pushBatch.mockImplementationOnce(async (_s: string, body: any) => ({ results: [{ table: "categories", id: body.categories[0].id, status: "rejected", error: "duplicate_name" }], cursor: 50 }));
+    const out = await runSync(S, api);
+    expect((await db.categories.get(id))!).toMatchObject({ sync_state: "error", sync_error: "duplicate_name" });
     expect(out.rejected).toBe(1);
   });
   it("applies the server row on a same-id rejection and keeps the row in error", async () => {

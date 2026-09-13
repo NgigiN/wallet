@@ -8,5 +8,13 @@ export const ERROR_COPY: Record<string, string> = {
   network: "You're offline. Changes are saved and will sync later.",
   invalid: "That doesn't look right.",
   conflict: "That already exists.",
+  // Per-row push rejections (server/src/services/sync.ts).
+  system_category: "Built-in categories can't be changed that way.",
+  id_conflict: "This item collided with one from another space. Re-create it.",
+  duplicate_name: "A category with that name already exists.",
+  duplicate_budget: "That category already has a budget.",
+  duplicate_rule: "A rule for that counterparty already exists.",
+  immutable: "Parsed transaction details can't be edited; only the category and note.",
+  bad_category: "That category no longer exists — pick another.",
 };
 export const copyFor = (code: string, fallback = "Something went wrong.") => ERROR_COPY[code] ?? fallback;
