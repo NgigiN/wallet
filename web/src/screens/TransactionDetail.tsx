@@ -47,7 +47,7 @@ export function TransactionDetail() {
     <>
       <div className="hero"><div className="dim">{t.counterparty}</div><div className="big"><Amount cents={t.amount_cents} direction={t.direction} /></div>
         <div className="dim">{new Date(t.occurred_at).toLocaleString()} · {t.source}{t.receipt_code ? ` · ${t.receipt_code}` : ""}{t.cost_cents ? ` · fee ${formatKes(t.cost_cents)}` : ""}</div></div>
-      {t.sync_state === "error" && <div className="card error">Not synced: {copyFor(t.sync_error ?? "")}</div>}
+      {t.sync_error && <div className="card error">Not synced: {copyFor(t.sync_error)}</div>}
       <div className="card">
         {manual && <>
           {!transfer && <div className="field"><label htmlFor="tx-dir">Direction</label><select id="tx-dir" value={dir} onChange={(e) => setDir(e.target.value as Direction)}><option value="out">Money out</option><option value="in">Money in</option></select></div>}

@@ -1,10 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { dayLabel, fromLocalInput, timeAgo, toLocalInput } from "../src/logic/dates";
 
-// These run in the machine's zone (Africa/Nairobi here, UTC+3) with process.env.TZ left
-// alone: the point is that the pair is a fixed point in WHATEVER zone the browser is in,
-// which is exactly what a datetime-local input round trip has to be.
+// vitest.config.ts pins TZ to Asia/Kolkata (UTC+5:30). At UTC the old UTC-slice-then-parse
+// bug is invisible, so the pin is what makes these tests a real guard on CI runners.
 describe("toLocalInput / fromLocalInput", () => {
+  it("runs under the pinned non-UTC zone (otherwise the round-trip tests prove nothing)", () => {
+    expect(new Date("2026-09-13T06:08:00.000Z").getTimezoneOffset()).toBe(-330);
+  });
+  it("differs from the old UTC-slice approach in this zone (the C1 regression)", () => {
+    const iso = "2026-09-13T06:08:00.000Z";
+    const buggy = new Date(iso.slice(0, 16)).toISOString();
+    expect(buggy).not.toBe(iso);
+    expect(fromLocalInput(toLocalInput(iso))).toBe(iso);
+  });
   it("round-trips an instant to the minute", () => {
     const iso = "2026-09-13T06:08:00.000Z";
     expect(fromLocalInput(toLocalInput(iso))).toBe(iso);

@@ -29,6 +29,12 @@ const saved = () => waitFor(async () => expect((await db.transactions.get("t1"))
 beforeEach(async () => { await Promise.all(db.tables.map((t) => t.clear())); await setCurrentSpaceId(S); });
 
 describe("TransactionDetail", () => {
+  it("shows the rejection copy for a row the engine re-queued as dirty (sync_error set, not error state)", async () => {
+    await seed({ sync_state: "dirty", sync_error: "bad_category" });
+    renderDetail();
+    await screen.findByDisplayValue("Naivas");
+    expect(screen.getByText(/That category no longer exists/)).toBeInTheDocument();
+  });
   it("saves an untouched manual row without shifting occurred_at", async () => {
     await seed();
     renderDetail();

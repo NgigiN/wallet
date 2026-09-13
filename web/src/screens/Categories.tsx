@@ -47,7 +47,7 @@ export function Categories() {
               <button className="iconbtn" aria-label="Move up" onClick={() => void move(i, -1)}>↑</button><button className="iconbtn" aria-label="Move down" onClick={() => void move(i, 1)}>↓</button>
               <button className="iconbtn" disabled={c.is_system} title={c.is_system ? "Built-in categories can't be archived" : undefined} aria-label={c.is_system ? "Built-in categories can't be archived" : c.archived ? "Unarchive" : "Archive"} onClick={() => { if (c.is_system) return; void archiveCategory(c.id, !c.archived); requestSync(); }}>{c.archived ? "♻️" : "🗄"}</button>
             </div>
-            {c.sync_state === "error" && <div className="error" style={{ paddingBottom: 8 }}>{copyFor(c.sync_error ?? "")}</div>}
+            {c.sync_error && <div className="error" style={{ paddingBottom: 8 }}>{copyFor(c.sync_error)}</div>}
           </div>); })}
       </SectionCard>
       <Sheet open={draft !== null} onClose={() => setDraft(null)}>
