@@ -58,15 +58,32 @@ export function createApp(deps: AppDeps) {
   app.all("/api/*", (c) => c.json({ error: "not_found" }, 404));
 
   const staticRoot = path.relative(process.cwd(), path.resolve(deps.env.STATIC_DIR)) || ".";
+  // /assets/* is content-hashed by vite, so it can be cached forever; the app shell and the
+  // service worker files must be revalidated every time or a deploy leaves browsers pinned
+  // to an old index.html / sw.js pair with no way back.
+  const NO_CACHE = new Set(["/", "/index.html", "/sw.js", "/manifest.webmanifest", "/registerSW.js"]);
+  app.use("*", async (c, next) => {
+    if (c.req.path.startsWith("/assets/")) c.header("Cache-Control", "public, max-age=31536000, immutable");
+    else if (NO_CACHE.has(c.req.path)) c.header("Cache-Control", "no-cache");
+    await next();
+  });
   app.use("*", serveStatic({ root: staticRoot }));
+  // The SPA fallback answers navigations only. A missing asset or a stale bundle's request
+  // used to get index.html with a 200, which turns "file is gone" into a parse error in the
+  // browser and hides the real cause.
   app.get("*", async (c) => {
+    if (!c.req.header("accept")?.includes("text/html")) return c.json({ error: "not_found" }, 404);
     try {
       const html = await readFile(path.resolve(deps.env.STATIC_DIR, "index.html"), "utf8");
+      c.header("Cache-Control", "no-cache");
       return c.html(html);
     } catch {
       return c.json({ error: "not_found" }, 404);
     }
   });
+  // Anything the fallback above declined (a non-GET, or a GET that wanted HTML when there
+  // is no index.html) lands here rather than on hono's plain-text default.
+  app.notFound((c) => c.json({ error: "not_found" }, 404));
 
   app.onError((err, c) => {
     const requestId = c.get("requestId");
