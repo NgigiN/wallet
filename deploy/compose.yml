@@ -17,8 +17,9 @@ services:
 
   api:
     build:
-      context: ../server
-      dockerfile: Dockerfile
+      # Repo root: the image builds web/ and server/ and serves both (ruling R-1B-2).
+      context: ..
+      dockerfile: server/Dockerfile
       args:
         APP_VERSION: ${APP_VERSION:-dev}
     restart: unless-stopped

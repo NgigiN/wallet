@@ -270,3 +270,9 @@ android/.gradle/
 android/.kotlin/
 
 financial-tracker
+
+# Playwright
+web/test-results/
+web/playwright-report/
+web/blob-report/
+web/.playwright/

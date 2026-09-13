@@ -17,6 +17,10 @@ export function createAuth(db: Db, env: Env) {
     database: drizzleAdapter(db, { provider: "pg", schema }),
     emailAndPassword: { enabled: true, minPasswordLength: 10 },
     session: { expiresIn: 60 * 60 * 24 * 30, updateAge: 60 * 60 * 24 },
+    // Only the headers our own edge sets: nginx writes x-real-ip, Cloudflare
+    // cf-connecting-ip. Leaving the default list in place would let a client spoof
+    // x-forwarded-for and walk around better-auth's own rate limiting.
+    advanced: { ipAddress: { ipAddressHeaders: ["x-real-ip", "cf-connecting-ip"] } },
     plugins: [
       bearer(),
       organization({

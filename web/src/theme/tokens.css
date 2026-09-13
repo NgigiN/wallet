@@ -1,0 +1,15 @@
+@font-face { font-family: "Sora"; src: url("/fonts/sora.ttf") format("truetype"); font-weight: 300 800; font-display: swap; }
+:root {
+  color-scheme: light dark;
+  --font: "Sora", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --hero-top: #0B4A33; --hero-bottom: #17966B; --on-hero: #F2FBF4; --on-hero-dim: #BFE3CC;
+  --on-hero-in: #9FE3BE; --on-hero-out: #FFC7AE;
+  --money-in: #1B7F4B; --money-out: #B02E0C; --gold: #AC8112; --cat-fallback: #607468;
+  --bg: #F6F8F6; --surface: #FFFFFF; --surface-2: #EEF3EF; --text: #14201A; --text-dim: #5C6B62; --line: #DCE5DE;
+  --accent: #17966B; --danger: #B02E0C; --radius: 14px; --radius-lg: 22px;
+  --safe-top: env(safe-area-inset-top, 0px); --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --tab-h: 64px;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --money-in: #4CAE78; --money-out: #E06A3C; --bg: #0E1512; --surface: #16201B; --surface-2: #1E2A24; --text: #EAF2EC; --text-dim: #9DB0A4; --line: #2A3A31; --danger: #E06A3C; }
+}
